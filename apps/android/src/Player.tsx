@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, View, useTVEventHandler } from 'react-native';
 import Video, {
   SelectedTrackType,
@@ -108,6 +108,8 @@ export function Player({
   /** Primeiro currentTime da tentativa atual; o avanço dele confirma a reprodução. */
   const firstProgress = useRef<number | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Reconexão agendada: novas falhas nesse intervalo não gastam outra tentativa. */
+  const retryPending = useRef(false);
   const osdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -135,6 +137,7 @@ export function Player({
   // Novo conteúdo: zera política de reconexão, travamento, faixas e estado de pausa
   useEffect(() => {
     if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
+    retryPending.current = false;
     reconnector.reset();
     stall.reset();
     channelInput.clear();
@@ -164,6 +167,7 @@ export function Player({
 
   // Falha (erro do player ou travamento): reconecta com backoff ou desiste
   const handleFailure = useCallback(() => {
+    if (retryPending.current) return;
     const decision = reconnector.fail();
     if (decision.action === 'giveUp') {
       setStatus('error');
@@ -172,7 +176,9 @@ export function Player({
     setRetryNo(decision.attempt);
     setStatus('reconnecting');
     if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
+    retryPending.current = true;
     retryTimer.current = setTimeout(() => {
+      retryPending.current = false;
       stall.reset();
       lastTime.current = 0;
       firstProgress.current = null;
@@ -186,7 +192,7 @@ export function Player({
   useEffect(() => {
     const id = setInterval(() => {
       const { status: s, paused: p } = live.current;
-      if (s === 'reconnecting' || s === 'error') return;
+      if (s === 'reconnecting' || s === 'error' || retryPending.current) return;
       if (stall.sample(lastTime.current, p, Date.now())) handleFailure();
     }, STALL_POLL_MS);
     return () => clearInterval(id);
@@ -214,6 +220,10 @@ export function Player({
   const handleAction = useCallback(
     (action: RemoteAction) => {
       const cur = live.current;
+      // Na tela de erro não há OSD: não deixa um osd=true invisível engolir o Voltar
+      const show = () => {
+        if (cur.status !== 'error') showOsd();
+      };
       const digit = digitOf(action);
       if (digit !== null) {
         if (cur.onChannelNumber === undefined || !cur.isLive) return;
@@ -221,6 +231,9 @@ export function Player({
         return;
       }
       switch (action) {
+        case 'stop':
+          cur.onExit();
+          return;
         case 'channelUp':
           if (cur.isLive) cur.onChannel?.(1);
           return;
@@ -229,34 +242,40 @@ export function Player({
           return;
         case 'playPause':
           togglePause();
-          showOsd();
+          show();
           return;
         case 'play':
           setPaused(false);
-          showOsd();
+          show();
           return;
         case 'pause':
           setPaused(true);
-          showOsd();
+          show();
           return;
         case 'fastForward':
         case 'rewind': {
           if (cur.isLive) return;
           const delta = action === 'fastForward' ? SEEK_STEP_S : -SEEK_STEP_S;
           videoRef.current?.seek(Math.max(0, lastTime.current + delta));
-          showOsd();
+          show();
           return;
         }
         case 'up':
         case 'down':
           // Ao vivo, cima/baixo sempre trocam de canal (os botões do OSD ficam numa linha, esquerda/direita)
           if (cur.isLive) cur.onChannel?.(action === 'up' ? 1 : -1);
-          else showOsd();
+          else show();
           return;
         case 'left':
         case 'right':
+          // VOD com o OSD oculto: esquerda/direita buscam; com o OSD à vista, só o mantêm
+          if (!cur.isLive && !cur.osd && cur.status !== 'error') {
+            videoRef.current?.seek(Math.max(0, lastTime.current + (action === 'right' ? SEEK_STEP_S : -SEEK_STEP_S)));
+          }
+          show();
+          return;
         case 'ok':
-          showOsd();
+          show();
           return;
         default:
           return;
@@ -279,7 +298,7 @@ export function Player({
   // Voltar: OSD visível → esconde; oculto → sai. Retorna true para o App não tratar também.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (live.current.osd) hideOsd();
+      if (live.current.osd && live.current.status !== 'error') hideOsd();
       else live.current.onExit();
       return true;
     });
@@ -346,6 +365,8 @@ export function Player({
   };
 
   const retry = () => {
+    if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
+    retryPending.current = false;
     reconnector.reset();
     stall.reset();
     lastTime.current = 0;
@@ -357,17 +378,22 @@ export function Player({
 
   const kind = detectStreamKind(url);
   // 'type' só para HLS; TS, progressivo e desconhecido ficam com a detecção automática do ExoPlayer
-  const source: ReactVideoSource = {
-    uri: url,
-    ...(kind === 'hls' ? { type: 'm3u8' } : {}),
-    bufferConfig: BUFFER_CONFIG,
-  };
-  const selectedAudio: SelectedTrack | undefined = audio[audioSel]
-    ? { type: SelectedTrackType.INDEX, value: audio[audioSel].index }
-    : undefined;
-  const selectedText: SelectedTrack = text[textSel]
-    ? { type: SelectedTrackType.INDEX, value: text[textSel].index }
-    : DISABLED_TRACK;
+  const source = useMemo<ReactVideoSource>(
+    () => ({
+      uri: url,
+      ...(kind === 'hls' ? { type: 'm3u8' as const } : {}),
+      bufferConfig: BUFFER_CONFIG,
+    }),
+    [url, kind],
+  );
+  const selectedAudio = useMemo<SelectedTrack | undefined>(
+    () => (audio[audioSel] ? { type: SelectedTrackType.INDEX, value: audio[audioSel].index } : undefined),
+    [audio, audioSel],
+  );
+  const selectedText = useMemo<SelectedTrack>(
+    () => (text[textSel] ? { type: SelectedTrackType.INDEX, value: text[textSel].index } : DISABLED_TRACK),
+    [text, textSel],
+  );
 
   const audioLabel = trackLabel(audio[audioSel], 'Padrão');
   const textLabel = textSel >= 0 ? trackLabel(text[textSel], 'Ligadas') : 'Desligadas';

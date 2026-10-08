@@ -126,6 +126,8 @@ export function startPlayback(video: HTMLVideoElement, url: string, opts: Playba
       if (!data.fatal) return;
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !networkRetried) {
         networkRetried = true;
+        // Falhas ao carregar o manifest não se recuperam aqui: o detector de travamento e o
+        // reconector da tela cuidam delas
         hls.startLoad();
         return;
       }

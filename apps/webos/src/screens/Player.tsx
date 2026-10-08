@@ -62,6 +62,8 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
   const hideTimer = useRef<number | undefined>(undefined);
   const noticeTimer = useRef<number | undefined>(undefined);
   const retryTimer = useRef<number | undefined>(undefined);
+  // Reconexão agendada: novas falhas nesse intervalo não gastam outra tentativa
+  const retryPending = useRef(false);
   // Espelhos síncronos de osd/status: o interceptador de teclas lê sem esperar o render
   const osdRef = useRef(true);
   const statusRef = useRef<Status>('loading');
@@ -69,6 +71,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
   const channel = isLive && channels && index !== undefined ? channels[index] : undefined;
   const epg = channel ? currentAndNext(session.epg, channel.epgId ?? channel.id, Date.now()) : null;
   const withNumbers = isLive && !!channels && channels.length > 0;
+  const isError = status === 'error';
 
   const setStatus = useCallback((next: Status) => {
     statusRef.current = next;
@@ -106,11 +109,16 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
   // Falha de reprodução (erro do player ou travamento): reconecta 1s, 2s, 4s; depois mostra o erro
   const handleFailure = useCallback(
     (message: string) => {
+      if (retryPending.current) return;
       window.clearTimeout(retryTimer.current);
       const decision = reconnector.fail();
       if (decision.action === 'retry') {
         setStatus('reconnecting');
-        retryTimer.current = window.setTimeout(() => setAttempt((n) => n + 1), decision.delayMs);
+        retryPending.current = true;
+        retryTimer.current = window.setTimeout(() => {
+          retryPending.current = false;
+          setAttempt((n) => n + 1);
+        }, decision.delayMs);
       } else {
         setStatus('error');
         setError(message);
@@ -128,6 +136,11 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
     stall.reset();
 
     const onPlaying = () => {
+      // Recuperou sozinho durante a espera: cancela a reconexão agendada
+      if (retryPending.current) {
+        window.clearTimeout(retryTimer.current);
+        retryPending.current = false;
+      }
       reconnector.succeed();
       setStatus('playing');
     };
@@ -153,6 +166,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       window.clearTimeout(retryTimer.current);
+      retryPending.current = false;
       handleRef.current?.destroy();
       handleRef.current = null;
     };
@@ -163,7 +177,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
     const video = videoRef.current;
     if (!video) return;
     const timer = window.setInterval(() => {
-      if (statusRef.current === 'error') return;
+      if (statusRef.current === 'error' || retryPending.current) return;
       if (stall.sample(video.currentTime, video.paused, Date.now())) handleFailure(STALL_MESSAGE);
     }, STALL_SAMPLE_MS);
     return () => window.clearInterval(timer);
@@ -335,7 +349,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
 
   // Ao aparecer o OSD (ou o erro), foca o controle principal — só dentro do player
   useEffect(() => {
-    if (!osd && status !== 'error') return;
+    if (!osd && !isError) return;
     const frame = requestAnimationFrame(() => {
       const root = rootRef.current;
       if (!root) return;
@@ -343,12 +357,12 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
       if (target) target.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [osd, status, url]);
+  }, [osd, isError, url]);
 
   const cycleAudio = () => {
     const h = handleRef.current;
     if (!h || tracks.audio.length < 2) {
-      showNotice('Este canal não tem outras faixas de áudio');
+      showNotice(isLive ? 'Este canal não tem outras faixas de áudio' : 'Este conteúdo não tem outras faixas de áudio');
       return;
     }
     h.setAudio((tracks.a + 1) % tracks.audio.length);
@@ -368,6 +382,8 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
   };
 
   const retry = () => {
+    window.clearTimeout(retryTimer.current);
+    retryPending.current = false;
     reconnector.reset();
     setAttempt((n) => n + 1);
   };
