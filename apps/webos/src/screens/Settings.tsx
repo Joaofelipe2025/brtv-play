@@ -2,12 +2,18 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { useApp } from '../context';
 import { useAutoFocus } from '../hooks';
-import { savePreferences, store, type StreamFormat } from '../platform';
+import { savePreferences, store, type StreamFormat, type VideoEngine } from '../platform';
 import { Logo, TopBar } from '../components/Brand';
 
 const FORMATS: { value: StreamFormat; label: string }[] = [
   { value: 'hls', label: 'HLS' },
   { value: 'ts', label: 'MPEG-TS' },
+];
+
+const ENGINES: { value: VideoEngine; label: string }[] = [
+  { value: 'auto', label: 'Automático' },
+  { value: 'native', label: 'Nativo da TV' },
+  { value: 'hlsjs', label: 'hls.js' },
 ];
 
 export function Settings() {
@@ -30,7 +36,13 @@ export function Settings() {
   useAutoFocus(true);
 
   const setFormat = async (streamFormat: StreamFormat) => {
-    const prefs = { streamFormat };
+    const prefs = { ...session.prefs, streamFormat };
+    update({ prefs });
+    await savePreferences(prefs);
+  };
+
+  const setEngine = async (engine: VideoEngine) => {
+    const prefs = { ...session.prefs, engine };
     update({ prefs });
     await savePreferences(prefs);
   };
@@ -91,6 +103,22 @@ export function Settings() {
                   onClick={() => void setFormat(f.value)}
                 >
                   {f.label}
+                </button>
+              ))}
+            </div>
+            <h3 style={{ marginTop: 24 }}>Motor de vídeo</h3>
+            <p className="muted" style={{ marginTop: 8 }}>
+              Troque se o vídeo travar ou ficar sem áudio.
+            </p>
+            <div className="segmented" style={{ marginTop: 16 }}>
+              {ENGINES.map((e) => (
+                <button
+                  key={e.value}
+                  data-fk={`engine-${e.value}`}
+                  className={`focusable pill ${session.prefs.engine === e.value ? 'is-active' : ''}`}
+                  onClick={() => void setEngine(e.value)}
+                >
+                  {e.label}
                 </button>
               ))}
             </div>

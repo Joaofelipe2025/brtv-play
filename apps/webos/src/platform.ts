@@ -42,12 +42,15 @@ export function hydrateStore(): Promise<void> {
 
 export type StreamFormat = 'hls' | 'ts';
 
+export type VideoEngine = 'auto' | 'native' | 'hlsjs';
+
 export interface Preferences {
   streamFormat: StreamFormat;
+  engine: VideoEngine;
 }
 
 const PREFS_KEY = 'brtv.prefs.v1';
-const defaultPrefs: Preferences = { streamFormat: 'hls' };
+const defaultPrefs: Preferences = { streamFormat: 'hls', engine: 'auto' };
 
 export async function loadPreferences(): Promise<Preferences> {
   const raw = await adapter.get(PREFS_KEY);
@@ -56,6 +59,7 @@ export async function loadPreferences(): Promise<Preferences> {
     const parsed = JSON.parse(raw) as Partial<Preferences>;
     return {
       streamFormat: parsed.streamFormat === 'ts' ? 'ts' : 'hls',
+      engine: parsed.engine === 'native' || parsed.engine === 'hlsjs' ? parsed.engine : 'auto',
     };
   } catch {
     return defaultPrefs;

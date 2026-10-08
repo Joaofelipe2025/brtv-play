@@ -74,6 +74,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
 
     let retryTimer: number | undefined;
     handleRef.current = startPlayback(video, url, {
+      engine: session.prefs.engine,
       onTracks: readTracks,
       onError: (message) => {
         if (retries.current < MAX_RECONNECT_ATTEMPTS) {
@@ -95,7 +96,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, [url, attempt, readTracks]);
+  }, [url, attempt, readTracks, session.prefs.engine]);
 
   // Histórico
   useEffect(() => {

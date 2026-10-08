@@ -37,7 +37,7 @@ export function App() {
     library: null,
     loading: false,
     epg: new Map(),
-    prefs: { streamFormat: 'hls' },
+    prefs: { streamFormat: 'hls', engine: 'auto' },
     unlockedCategories: [],
     reloadToken: 0,
   });

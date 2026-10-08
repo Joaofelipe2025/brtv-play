@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { startPlayback } from '../player';
 import { useDebounced } from '../hooks';
+import { useApp } from '../context';
 
 /**
  * Prévia silenciosa de um stream. Só começa depois que o foco para por `delay` ms,
@@ -8,6 +9,8 @@ import { useDebounced } from '../hooks';
  * Falhas são silenciosas: a arte de fundo continua visível.
  */
 export function PreviewVideo({ url, delay = 700 }: { url: string | null; delay?: number }) {
+  const { session } = useApp();
+  const engine = session.prefs.engine;
   const settled = useDebounced(url, delay);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [visible, setVisible] = useState(false);
@@ -18,12 +21,12 @@ export function PreviewVideo({ url, delay = 700 }: { url: string | null; delay?:
     if (!video || !settled) return;
     const onPlaying = () => setVisible(true);
     video.addEventListener('playing', onPlaying);
-    const handle = startPlayback(video, settled, { muted: true, onError: () => setVisible(false) });
+    const handle = startPlayback(video, settled, { muted: true, engine, onError: () => setVisible(false) });
     return () => {
       video.removeEventListener('playing', onPlaying);
       handle.destroy();
     };
-  }, [settled]);
+  }, [settled, engine]);
 
   return (
     <video
