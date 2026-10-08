@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, ScrollView, TVEventHandler, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { BackHandler, ScrollView, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import {
@@ -11,7 +11,6 @@ import {
 } from '@expo-google-fonts/poppins';
 import QRCode from 'react-native-qrcode-svg';
 import { FlashList } from '@shopify/flash-list';
-import Video, { type OnVideoErrorData } from 'react-native-video';
 import { useStore } from 'zustand';
 import {
   ACTIVATION_URL,
@@ -28,6 +27,7 @@ import {
   type Playlist,
 } from '@brtv/core';
 import { asyncAdapter, store } from './platform';
+import { Player } from './Player';
 import { Body, FocusCard, Logo, Text, Title, styles } from './ui';
 
 type Screen =
@@ -36,7 +36,6 @@ type Screen =
   | { name: 'settings' }
   | { name: 'player'; index: number };
 
-const MAX_RECONNECT_ATTEMPTS = 3;
 const POLL_MS = 10_000;
 /** Ponto único de troca para o backend real (ver README). */
 const backend = new MockBackendService();
@@ -65,10 +64,8 @@ export default function App() {
   // Voltar: player → live → home; em home o Android fecha o app
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (screen.name === 'player') {
-        setScreen({ name: 'live' });
-        return true;
-      }
+      // O Player é dono do Voltar enquanto está montado (OSD → esconde; oculto → onExit)
+      if (screen.name === 'player') return false;
       if (screen.name === 'live' || screen.name === 'settings') {
         setScreen({ name: 'home' });
         return true;
@@ -140,15 +137,20 @@ export default function App() {
   }
 
   return (
-    <PlayerView
-      channel={current}
-      index={screen.index}
+    <Player
+      url={current.url}
+      title={current.name}
+      isLive
+      channelNumber={screen.index + 1}
       total={channels.length}
       onChannel={(delta) => {
         if (channels.length === 0) return;
         const next = (screen.index + delta + channels.length) % channels.length;
         setScreen({ name: 'player', index: next });
       }}
+      onChannelNumber={(n) => setScreen({ name: 'player', index: n - 1 })}
+      onExit={() => setScreen({ name: 'live' })}
+      epgTitle={currentAndNext(NO_EPG, current.tvgId ?? current.id, Date.now()).current?.title}
     />
   );
 }
@@ -276,104 +278,6 @@ function LiveView({ channels, onPlay }: { channels: M3uChannel[]; onPlay: (index
           <Body>{current && favorites.includes(current.id) ? '★ Remover dos favoritos' : '☆ Favoritar'}</Body>
         </FocusCard>
       </View>
-    </View>
-  );
-}
-
-function PlayerView({
-  channel,
-  index,
-  total,
-  onChannel,
-}: {
-  channel: M3uChannel;
-  index: number;
-  total: number;
-  onChannel(delta: number): void;
-}) {
-  const [attempt, setAttempt] = useState(0);
-  const [failed, setFailed] = useState(false);
-  const [showInfo, setShowInfo] = useState(true);
-  const retries = useRef(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // Reinicia contadores quando o canal muda
-  useEffect(() => {
-    retries.current = 0;
-    setFailed(false);
-    setAttempt(0);
-  }, [channel.id]);
-
-  useEffect(() => {
-    setShowInfo(true);
-    const t = setTimeout(() => setShowInfo(false), 5000);
-    return () => clearTimeout(t);
-  }, [channel.id, attempt]);
-
-  useEffect(
-    () => () => {
-      if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
-    },
-    [],
-  );
-
-  // Reconexão com backoff: 1s, 2s, 4s; depois mostra erro
-  const onError = useCallback((_e: OnVideoErrorData) => {
-    if (retries.current >= MAX_RECONNECT_ATTEMPTS) {
-      setFailed(true);
-      return;
-    }
-    const delay = 1000 * 2 ** retries.current;
-    retries.current += 1;
-    retryTimer.current = setTimeout(() => setAttempt((a) => a + 1), delay);
-  }, []);
-
-  useEffect(() => {
-    // Os tipos do react-native-tvos não expõem o construtor de TVEventHandler; o cast isola isso aqui
-    const TVEventHandlerClass = TVEventHandler as unknown as new () => {
-      enable(cmp: unknown, cb: (cmp: unknown, evt: { eventType?: string }) => void): void;
-      disable(): void;
-    };
-    const handler = new TVEventHandlerClass();
-    handler.enable(undefined, (_cmp, evt) => {
-      if (evt.eventType === 'up') onChannel(1);
-      if (evt.eventType === 'down') onChannel(-1);
-    });
-    return () => handler.disable();
-  }, [onChannel]);
-
-  return (
-    <View style={{ flex: 1, backgroundColor: '#000' }}>
-      {!failed && (
-        <Video
-          key={`${channel.id}-${attempt}`}
-          source={{ uri: channel.url }}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-          resizeMode="contain"
-          onError={onError}
-          bufferConfig={{
-            minBufferMs: 2000,
-            maxBufferMs: 15000,
-            bufferForPlaybackMs: 1000,
-            bufferForPlaybackAfterRebufferMs: 2000,
-          }}
-        />
-      )}
-      {failed && (
-        <View style={[styles.screen, { justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)' }]}>
-          <Title>Não foi possível reproduzir</Title>
-          <Body muted>Verifique a conexão e tente outro canal.</Body>
-        </View>
-      )}
-      {showInfo && (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 32, backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <Text style={[styles.brand, { fontSize: 24 }]}>
-            AO VIVO · {index + 1}/{total}
-          </Text>
-          <Title>{channel.name}</Title>
-          <Body muted>CH+ / CH- (cima/baixo) para trocar canal · Voltar para sair</Body>
-        </View>
-      )}
     </View>
   );
 }
