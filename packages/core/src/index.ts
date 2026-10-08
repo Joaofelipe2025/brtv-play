@@ -7,4 +7,5 @@ export * from './epg';
 export * from './store';
 export * from './theme';
 export * from './remote';
+export * from './playback';
 export * from './brand.generated';
