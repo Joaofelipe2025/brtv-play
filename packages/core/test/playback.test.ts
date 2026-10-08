@@ -208,6 +208,13 @@ describe('novas teclas do controle', () => {
     expect(mapAndroidKey('DPadUp')).toBe('up');
     expect(mapAndroidKey('menu')).toBeNull();
   });
+  it('mapeia dígitos do Android (eventType "0"…"9")', () => {
+    for (let d = 0; d <= 9; d++) {
+      const action = mapAndroidKey(String(d));
+      expect(action).toBe(`digit${d}`);
+      expect(action && digitOf(action)).toBe(d);
+    }
+  });
   it('digitOf extrai o dígito', () => {
     expect(digitOf('digit0')).toBe(0);
     expect(digitOf('digit7')).toBe(7);

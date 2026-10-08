@@ -70,6 +70,17 @@ export const ANDROID_KEYS: Readonly<Record<string, RemoteAction>> = {
   ColorF1Green: 'green',
   ColorF2Yellow: 'yellow',
   ColorF3Blue: 'blue',
+  // Dígitos: react-native-tvos emite eventType "0"…"9"
+  '0': 'digit0',
+  '1': 'digit1',
+  '2': 'digit2',
+  '3': 'digit3',
+  '4': 'digit4',
+  '5': 'digit5',
+  '6': 'digit6',
+  '7': 'digit7',
+  '8': 'digit8',
+  '9': 'digit9',
   // Nomes emitidos pelo useTVEventHandler (react-native-tvos). 'menu' não é mapeado.
   up: 'up',
   down: 'down',

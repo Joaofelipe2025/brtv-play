@@ -4,6 +4,7 @@ import Video, {
   SelectedTrackType,
   type OnAudioTracksData,
   type OnLoadData,
+  type OnPlaybackStateChangedData,
   type OnProgressData,
   type OnTextTracksData,
   type ReactVideoSource,
@@ -104,6 +105,8 @@ export function Player({
   const [time, setTime] = useState({ current: 0, duration: 0 });
 
   const lastTime = useRef(0);
+  /** Primeiro currentTime da tentativa atual; o avanço dele confirma a reprodução. */
+  const firstProgress = useRef<number | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const osdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -136,6 +139,7 @@ export function Player({
     stall.reset();
     channelInput.clear();
     lastTime.current = 0;
+    firstProgress.current = null;
     setStatus('loading');
     setAttempt(0);
     setRetryNo(0);
@@ -171,6 +175,8 @@ export function Player({
     retryTimer.current = setTimeout(() => {
       stall.reset();
       lastTime.current = 0;
+      firstProgress.current = null;
+      setStatus('loading');
       setAttempt((a) => a + 1);
     }, decision.delayMs);
   }, [reconnector, stall]);
@@ -243,9 +249,8 @@ export function Player({
         }
         case 'up':
         case 'down':
-          // Com o OSD visível, o foco navega pelos botões; oculto, troca de canal
-          if (cur.osd) showOsd();
-          else if (cur.isLive) cur.onChannel?.(action === 'up' ? 1 : -1);
+          // Ao vivo, cima/baixo sempre trocam de canal (os botões do OSD ficam numa linha, esquerda/direita)
+          if (cur.isLive) cur.onChannel?.(action === 'up' ? 1 : -1);
           else showOsd();
           return;
         case 'left':
@@ -260,10 +265,10 @@ export function Player({
     [channelInput, showOsd, togglePause],
   );
 
-  // Teclas do controle (react-native-tvos). Ações de soltar tecla (eventKeyAction 1 no Android) são ignoradas.
+  // Teclas do controle (react-native-tvos). No Android só chegam eventos de soltar tecla
+  // (eventKeyAction 1), então nenhum filtro por ação. Nomes 'long*' (toque longo) não são mapeados.
   const onTVEvent = useCallback(
-    (evt: { eventType: string; eventKeyAction?: number }) => {
-      if (evt.eventKeyAction === 1) return;
+    (evt: { eventType: string }) => {
       const action = mapAndroidKey(evt.eventType);
       if (action !== null) handleAction(action);
     },
@@ -283,19 +288,34 @@ export function Player({
 
   const onLoad = useCallback(
     (e: OnLoadData) => {
-      reconnector.succeed();
-      stall.reset();
-      setStatus('playing');
-      setRetryNo(0);
+      // onLoad vem antes de qualquer quadro: só guarda a duração; "tocando" é confirmado abaixo
       setTime((t) => ({ ...t, duration: e.duration }));
     },
-    [reconnector, stall],
+    [],
+  );
+
+  // Reprodução confirmada: só aqui o contador de reconexão volta a zero
+  const markPlaying = useCallback(() => {
+    if (live.current.status !== 'loading') return;
+    reconnector.succeed();
+    stall.reset();
+    setRetryNo(0);
+    setStatus('playing');
+  }, [reconnector, stall]);
+
+  const onPlaybackStateChanged = useCallback(
+    (e: OnPlaybackStateChangedData) => {
+      if (e.isPlaying) markPlaying();
+    },
+    [markPlaying],
   );
 
   const onProgress = useCallback((e: OnProgressData) => {
     lastTime.current = e.currentTime;
+    if (firstProgress.current === null) firstProgress.current = e.currentTime;
+    else if (e.currentTime > firstProgress.current + 0.05) markPlaying();
     setTime((t) => (Math.abs(t.current - e.currentTime) < 0.5 ? t : { ...t, current: e.currentTime }));
-  }, []);
+  }, [markPlaying]);
 
   const onAudioTracks = useCallback((e: OnAudioTracksData) => {
     setAudio(e.audioTracks);
@@ -329,6 +349,7 @@ export function Player({
     reconnector.reset();
     stall.reset();
     lastTime.current = 0;
+    firstProgress.current = null;
     setRetryNo(0);
     setStatus('loading');
     setAttempt((a) => a + 1);
@@ -368,6 +389,7 @@ export function Player({
           selectedTextTrack={selectedText}
           onLoad={onLoad}
           onProgress={onProgress}
+          onPlaybackStateChanged={onPlaybackStateChanged}
           onAudioTracks={onAudioTracks}
           onTextTracks={onTextTracks}
           onError={handleFailure}
