@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-native",
+    "lib": ["ES2020"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "index.js"]
+}

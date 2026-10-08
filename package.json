@@ -1,0 +1,22 @@
+{
+  "name": "brtv-play",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BRTV PLAY — reprodutor de IPTV para Android TV e LG webOS (monorepo)",
+  "scripts": {
+    "test": "pnpm --filter @brtv/core test",
+    "typecheck": "pnpm -r --filter @brtv/core --filter @brtv/webos typecheck",
+    "webos:dev": "pnpm --filter @brtv/webos dev",
+    "webos:build": "pnpm --filter @brtv/webos build",
+    "webos:package": "pnpm --filter @brtv/webos package",
+    "android": "pnpm --filter @brtv/android android",
+    "brand:assets": "node scripts/generate-brand-assets.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}

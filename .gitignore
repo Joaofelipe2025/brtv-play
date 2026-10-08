@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-ipk/
+*.ipk
+.env
+.env.*
+coverage/
+.DS_Store
+*.log
+
+.superpowers/
+assets/brand/logo-preview.png

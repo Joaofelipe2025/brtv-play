@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "BRTV PLAY",
+    "slug": "brtv-play",
+    "version": "0.1.0",
+    "orientation": "landscape",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#06080B",
+    "platforms": [
+      "android"
+    ],
+    "android": {
+      "package": "app.brtvplay.player",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#06080B"
+      }
+    },
+    "plugins": [
+      "./plugins/withLeanback.js"
+    ],
+    "icon": "./assets/icon.png"
+  }
+}
