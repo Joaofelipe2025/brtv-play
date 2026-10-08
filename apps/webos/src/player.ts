@@ -179,10 +179,3 @@ export function startPlayback(video: HTMLVideoElement, url: string, opts: Playba
     },
   };
 }
-
-export const MAX_RECONNECT_ATTEMPTS = 3;
-
-/** Backoff exponencial: 1s, 2s, 4s. */
-export function reconnectDelayMs(attempt: number): number {
-  return 1000 * 2 ** attempt;
-}

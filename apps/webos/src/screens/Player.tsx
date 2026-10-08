@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { currentAndNext, type RemoteAction } from '@brtv/core';
+import {
+  channelIndexForNumber,
+  createChannelNumberInput,
+  createReconnector,
+  createStallDetector,
+  currentAndNext,
+  digitOf,
+  RECONNECT,
+  type RemoteAction,
+} from '@brtv/core';
 import { useApp } from '../context';
-import { MAX_RECONNECT_ATTEMPTS, reconnectDelayMs, startPlayback, type PlaybackHandle, type Track } from '../player';
+import { startPlayback, type PlaybackHandle, type Track } from '../player';
 import { store } from '../platform';
 import type { LiveItem } from '../library';
-import { focusFirst, setKeyInterceptor } from '../focus';
+import { setKeyInterceptor } from '../focus';
 import { Clock, Logo, Progress } from '../components/Brand';
 import { ChannelLogo } from '../components/Artwork';
 import { elapsed, formatClock, formatHour } from '../format';
@@ -21,17 +30,28 @@ interface PlayerProps {
 type Status = 'loading' | 'playing' | 'reconnecting' | 'error';
 
 const OSD_MS = 5000;
+const NOTICE_MS = 3000;
 const SAVE_EVERY_MS = 5000;
 const SEEK_SECONDS = 10;
+const STALL_SAMPLE_MS = 1000;
+const DIGIT_POLL_MS = 250;
+const STALL_MESSAGE = 'A imagem parou de se mover.';
 
 export function Player({ url, title, isLive, id, channels, index }: PlayerProps) {
-  const { session, replace } = useApp();
+  const { session, replace, back } = useApp();
+  const rootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<PlaybackHandle | null>(null);
-  const [status, setStatus] = useState<Status>('loading');
+  const [reconnector] = useState(() => createReconnector());
+  const [stall] = useState(() => createStallDetector());
+  const [channelInput] = useState(() => createChannelNumberInput());
+  const [status, setStatusState] = useState<Status>('loading');
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [osd, setOsd] = useState(true);
+  const [osd, setOsdState] = useState(true);
+  const [paused, setPaused] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pendingDigits, setPendingDigits] = useState('');
   const [time, setTime] = useState({ current: 0, duration: 0 });
   const [tracks, setTracks] = useState<{ audio: Track[]; text: Track[]; a: number; t: number }>({
     audio: [],
@@ -39,16 +59,42 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
     a: -1,
     t: -1,
   });
-  const retries = useRef(0);
   const hideTimer = useRef<number | undefined>(undefined);
+  const noticeTimer = useRef<number | undefined>(undefined);
+  const retryTimer = useRef<number | undefined>(undefined);
+  // Espelhos síncronos de osd/status: o interceptador de teclas lê sem esperar o render
+  const osdRef = useRef(true);
+  const statusRef = useRef<Status>('loading');
 
   const channel = isLive && channels && index !== undefined ? channels[index] : undefined;
   const epg = channel ? currentAndNext(session.epg, channel.epgId ?? channel.id, Date.now()) : null;
+  const withNumbers = isLive && !!channels && channels.length > 0;
+
+  const setStatus = useCallback((next: Status) => {
+    statusRef.current = next;
+    setStatusState(next);
+  }, []);
+
+  const setOsd = useCallback((visible: boolean) => {
+    osdRef.current = visible;
+    setOsdState(visible);
+  }, []);
 
   const showOsd = useCallback(() => {
     setOsd(true);
     window.clearTimeout(hideTimer.current);
     hideTimer.current = window.setTimeout(() => setOsd(false), OSD_MS);
+  }, [setOsd]);
+
+  const hideOsd = useCallback(() => {
+    window.clearTimeout(hideTimer.current);
+    setOsd(false);
+  }, [setOsd]);
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS);
   }, []);
 
   const readTracks = useCallback(() => {
@@ -57,46 +103,71 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
     setTracks({ audio: h.audioTracks(), text: h.textTracks(), a: h.currentAudio(), t: h.currentText() });
   }, []);
 
-  // Reprodução com reconexão: 1s, 2s, 4s; depois mostra erro com "Tentar de novo"
+  // Falha de reprodução (erro do player ou travamento): reconecta 1s, 2s, 4s; depois mostra o erro
+  const handleFailure = useCallback(
+    (message: string) => {
+      window.clearTimeout(retryTimer.current);
+      const decision = reconnector.fail();
+      if (decision.action === 'retry') {
+        setStatus('reconnecting');
+        retryTimer.current = window.setTimeout(() => setAttempt((n) => n + 1), decision.delayMs);
+      } else {
+        setStatus('error');
+        setError(message);
+      }
+    },
+    [reconnector, setStatus],
+  );
+
+  // Reprodução com reconexão
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    setStatus(retries.current > 0 ? 'reconnecting' : 'loading');
+    setStatus(reconnector.attempts() > 0 ? 'reconnecting' : 'loading');
     setError(null);
+    stall.reset();
 
     const onPlaying = () => {
-      retries.current = 0;
+      reconnector.succeed();
       setStatus('playing');
     };
-    const onWaiting = () => setStatus((s) => (s === 'playing' ? 'loading' : s));
+    const onWaiting = () => {
+      if (statusRef.current === 'playing') setStatus('loading');
+    };
+    const onPlay = () => setPaused(false);
+    const onPause = () => setPaused(true);
     video.addEventListener('playing', onPlaying);
     video.addEventListener('waiting', onWaiting);
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
 
-    let retryTimer: number | undefined;
     handleRef.current = startPlayback(video, url, {
       engine: session.prefs.engine,
       onTracks: readTracks,
-      onError: (message) => {
-        if (retries.current < MAX_RECONNECT_ATTEMPTS) {
-          const delay = reconnectDelayMs(retries.current);
-          retries.current += 1;
-          setStatus('reconnecting');
-          retryTimer = window.setTimeout(() => setAttempt((n) => n + 1), delay);
-        } else {
-          setStatus('error');
-          setError(message);
-        }
-      },
+      onError: handleFailure,
     });
 
     return () => {
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('waiting', onWaiting);
-      window.clearTimeout(retryTimer);
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      window.clearTimeout(retryTimer.current);
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, [url, attempt, readTracks, session.prefs.engine]);
+  }, [url, attempt, readTracks, handleFailure, reconnector, stall, setStatus, session.prefs.engine]);
+
+  // Detecção de travamento: amostra a cada 1s, exceto em erro
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const timer = window.setInterval(() => {
+      if (statusRef.current === 'error') return;
+      if (stall.sample(video.currentTime, video.paused, Date.now())) handleFailure(STALL_MESSAGE);
+    }, STALL_SAMPLE_MS);
+    return () => window.clearInterval(timer);
+  }, [url, stall, handleFailure]);
 
   // Histórico
   useEffect(() => {
@@ -122,71 +193,174 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
     };
   }, [id, isLive, url]);
 
-  // Tempo para a barra de progresso
+  // Tempo para a barra de progresso; mostra o OSD ao abrir ou trocar de canal
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     const tick = () => setTime({ current: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : 0 });
     video.addEventListener('timeupdate', tick);
+    channelInput.clear();
+    setPendingDigits('');
     showOsd();
     return () => {
       video.removeEventListener('timeupdate', tick);
       window.clearTimeout(hideTimer.current);
     };
-  }, [url, showOsd]);
+  }, [url, showOsd, channelInput]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(noticeTimer.current);
+    },
+    [],
+  );
+
+  const goToChannel = useCallback(
+    (nextIndex: number) => {
+      const next = channels?.[nextIndex];
+      if (!channels || !next) return;
+      replace({ name: 'player', url: next.url, title: next.name, isLive: true, channels, index: nextIndex });
+    },
+    [channels, replace],
+  );
 
   const switchChannel = useCallback(
     (delta: number) => {
       if (!channels || index === undefined || channels.length === 0) return;
-      const nextIndex = (index + delta + channels.length) % channels.length;
-      const next = channels[nextIndex];
-      if (!next) return;
-      replace({ name: 'player', url: next.url, title: next.name, isLive: true, channels, index: nextIndex });
+      goToChannel((index + delta + channels.length) % channels.length);
     },
-    [channels, index, replace],
+    [channels, index, goToChannel],
   );
 
-  // Teclas do player: cima/baixo trocam canal no ao vivo; com OSD oculto, OK só mostra o OSD
-  // e esquerda/direita avançam ou voltam 10s no VOD.
+  // Número de canal digitado: confirma depois de 1,5 s sem novos dígitos
+  useEffect(() => {
+    if (!withNumbers || !channels || pendingDigits === '') return;
+    const total = channels.length;
+    const timer = window.setInterval(() => {
+      const n = channelInput.poll(Date.now());
+      if (n === null) return;
+      setPendingDigits('');
+      const target = channelIndexForNumber(n, total);
+      if (target === null) showNotice(`Canal ${n} não existe`);
+      else if (target !== index) goToChannel(target);
+    }, DIGIT_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [withNumbers, channels, pendingDigits, channelInput, index, goToChannel, showNotice]);
+
+  const seek = (delta: number) => {
+    const video = videoRef.current;
+    if (video) video.currentTime = Math.max(0, video.currentTime + delta);
+  };
+
+  const togglePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      const result = video.play();
+      if (result) result.catch(() => undefined);
+    } else {
+      video.pause();
+    }
+  };
+
+  // Teclas do player (ver `setKeyInterceptor` em focus.ts, que consulta antes de qualquer ação)
   useEffect(() => {
     const intercept = (action: RemoteAction): boolean => {
-      const osdWasHidden = !osd;
+      // Voltar: com o OSD à vista, só o esconde; oculto, deixa o Voltar global sair do player
+      if (action === 'back') {
+        if (osdRef.current && statusRef.current !== 'error') {
+          hideOsd();
+          return true;
+        }
+        return false;
+      }
+
+      const wasHidden = !osdRef.current && statusRef.current !== 'error';
       showOsd();
-      if (isLive && (action === 'up' || action === 'channelUp')) {
-        switchChannel(1);
+
+      const digit = digitOf(action);
+      if (digit !== null) {
+        if (withNumbers) setPendingDigits(channelInput.press(digit, Date.now()));
         return true;
       }
-      if (isLive && (action === 'down' || action === 'channelDown')) {
-        switchChannel(-1);
-        return true;
-      }
-      if (osdWasHidden && action === 'ok') return true;
+
       const video = videoRef.current;
-      if (!isLive && osdWasHidden && video && (action === 'left' || action === 'right')) {
-        video.currentTime = Math.max(0, video.currentTime + (action === 'right' ? SEEK_SECONDS : -SEEK_SECONDS));
-        return true;
+      switch (action) {
+        case 'stop':
+          back();
+          return true;
+        case 'playPause':
+          togglePlay();
+          return true;
+        case 'play':
+          if (video && video.paused) togglePlay();
+          return true;
+        case 'pause':
+          if (video && !video.paused) togglePlay();
+          return true;
+        case 'fastForward':
+        case 'rewind':
+          if (!isLive) seek(action === 'fastForward' ? SEEK_SECONDS : -SEEK_SECONDS);
+          return true;
+        case 'up':
+        case 'channelUp':
+          if (isLive) {
+            switchChannel(1);
+            return true;
+          }
+          return false;
+        case 'down':
+        case 'channelDown':
+          if (isLive) {
+            switchChannel(-1);
+            return true;
+          }
+          return false;
+        case 'ok':
+          return wasHidden;
+        case 'left':
+        case 'right':
+          if (!isLive && wasHidden) {
+            seek(action === 'right' ? SEEK_SECONDS : -SEEK_SECONDS);
+            return true;
+          }
+          return false;
+        default:
+          return false;
       }
-      return false;
     };
     setKeyInterceptor(intercept);
     return () => setKeyInterceptor(null);
-  }, [osd, isLive, showOsd, switchChannel]);
+  }, [isLive, withNumbers, showOsd, hideOsd, switchChannel, back, channelInput]);
 
-  // Ao aparecer o OSD (ou o erro), foca o primeiro controle
+  // Ao aparecer o OSD (ou o erro), foca o controle principal — só dentro do player
   useEffect(() => {
-    if (osd || status === 'error') requestAnimationFrame(() => focusFirst());
-  }, [osd, status]);
+    if (!osd && status !== 'error') return;
+    const frame = requestAnimationFrame(() => {
+      const root = rootRef.current;
+      if (!root) return;
+      const target = root.querySelector<HTMLElement>('[data-autofocus]');
+      if (target) target.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [osd, status, url]);
 
   const cycleAudio = () => {
     const h = handleRef.current;
-    if (!h || tracks.audio.length < 2) return;
+    if (!h || tracks.audio.length < 2) {
+      showNotice('Este canal não tem outras faixas de áudio');
+      return;
+    }
     h.setAudio((tracks.a + 1) % tracks.audio.length);
     readTracks();
   };
 
   const cycleText = () => {
     const h = handleRef.current;
-    if (!h || tracks.text.length === 0) return;
+    if (!h || tracks.text.length === 0) {
+      showNotice('Este conteúdo não tem legendas');
+      return;
+    }
     // Desligada → faixa 0 → faixa 1 → … → desligada
     const next = tracks.t + 1 >= tracks.text.length ? -1 : tracks.t + 1;
     h.setText(next);
@@ -194,15 +368,17 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
   };
 
   const retry = () => {
-    retries.current = 0;
+    reconnector.reset();
     setAttempt((n) => n + 1);
   };
 
   const audioLabel = tracks.audio[tracks.a]?.label ?? (tracks.audio.length ? tracks.audio[0]!.label : 'Padrão');
   const textLabel = tracks.t >= 0 ? (tracks.text[tracks.t]?.label ?? 'Ligadas') : 'Desligadas';
+  const noAudio = tracks.audio.length < 2;
+  const noText = tracks.text.length === 0;
 
   return (
-    <div className="screen" style={{ padding: 0, background: '#000', animation: 'none' }} onMouseMove={showOsd}>
+    <div ref={rootRef} className="screen" style={{ padding: 0, background: '#000', animation: 'none' }} onMouseMove={showOsd}>
       <video ref={videoRef} className="player-video" autoPlay playsInline />
 
       {(status === 'loading' || status === 'reconnecting') && (
@@ -210,7 +386,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
           <div className="spinner" />
           {status === 'reconnecting' && (
             <p className="muted" style={{ marginTop: 24 }}>
-              Sinal caiu. Reconectando, tentativa {retries.current} de {MAX_RECONNECT_ATTEMPTS}…
+              Sinal caiu. Reconectando, tentativa {Math.max(1, reconnector.attempts())} de {RECONNECT.maxAttempts}…
             </p>
           )}
         </div>
@@ -220,7 +396,7 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
         <div className="osd__center">
           <h2>Não foi possível reproduzir</h2>
           <p className="muted" style={{ marginTop: 12, maxWidth: 900 }}>
-            O sinal não respondeu depois de {MAX_RECONNECT_ATTEMPTS} tentativas. Confira a conexão ou escolha outro {isLive ? 'canal' : 'título'}.
+            O sinal não respondeu depois de {RECONNECT.maxAttempts} tentativas. Confira a conexão ou escolha outro {isLive ? 'canal' : 'título'}.
           </p>
           {error && (
             <p className="muted" style={{ marginTop: 8, fontSize: 24 }}>
@@ -228,12 +404,15 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
             </p>
           )}
           <div className="hstack" style={{ marginTop: 32 }}>
-            <button className="focusable btn btn--primary" onClick={retry}>
+            <button className="focusable btn btn--primary" data-autofocus onClick={retry}>
               Tentar de novo
             </button>
           </div>
         </div>
       )}
+
+      {pendingDigits !== '' && <div className="osd-number num">{pendingDigits}</div>}
+      {notice && <div className="osd-notice">{notice}</div>}
 
       {osd && status !== 'error' && (
         <>
@@ -286,22 +465,28 @@ export function Player({ url, title, isLive, id, channels, index }: PlayerProps)
             )}
 
             <div className="hstack" style={{ marginTop: 28, '--sp': '20px' } as CSSProperties}>
+              <button className="focusable btn btn--primary" data-autofocus onClick={togglePlay}>
+                {paused ? 'Continuar' : 'Pausar'}
+              </button>
               <button
-                className="focusable btn"
+                className={`focusable btn${noAudio ? ' btn--dim' : ''}`}
+                aria-disabled={noAudio ? 'true' : undefined}
                 onClick={cycleAudio}
-                disabled={tracks.audio.length < 2}
-                style={{ opacity: tracks.audio.length < 2 ? 0.5 : 1 }}
               >
                 Áudio: {audioLabel}
               </button>
               <button
-                className="focusable btn"
+                className={`focusable btn${noText ? ' btn--dim' : ''}`}
+                aria-disabled={noText ? 'true' : undefined}
                 onClick={cycleText}
-                disabled={tracks.text.length === 0}
-                style={{ opacity: tracks.text.length === 0 ? 0.5 : 1 }}
               >
-                Legendas: {tracks.text.length === 0 ? 'indisponíveis' : textLabel}
+                Legendas: {noText ? 'indisponíveis' : textLabel}
               </button>
+              {isLive && (
+                <button className="focusable btn" onClick={back}>
+                  Canais
+                </button>
+              )}
               <span className="muted" style={{ marginLeft: 'auto', fontSize: 24 }}>
                 {isLive ? 'Cima e baixo trocam de canal' : 'Esquerda e direita voltam ou avançam 10s'}
               </span>
