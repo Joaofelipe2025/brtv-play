@@ -177,9 +177,13 @@ function VodBrowser({
           onUnlock={() => {
             update({ unlockedCategories: [...session.unlockedCategories, pending] });
             replace({ name: routeName, category: pending } as Route);
+            initialFocus.current = true;
             setPending(null);
           }}
-          onCancel={() => setPending(null)}
+          onCancel={() => {
+            initialFocus.current = true;
+            setPending(null);
+          }}
         />
       ) : (
         <>
@@ -210,6 +214,7 @@ function VodBrowser({
               {groups.map((g) => (
                 <FocusCard
                   key={g}
+                  autoFocus={visible.length === 0 && initialFocus.current && g === activeGroup}
                   selected={g === activeGroup && !query}
                   style={{ paddingVertical: 10, paddingHorizontal: 22 }}
                   onPress={() => choose(g)}
