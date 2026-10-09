@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
@@ -47,11 +47,12 @@ export function Live({ category }: { category?: string }) {
   const preview = channels.find((c) => c.id === selectedId) ?? channels[0] ?? null;
   const previewEpg = preview ? currentAndNext(session.epg, preview.epgId ?? preview.id, now) : null;
 
-  // Foco inicial só na primeira exibição da lista; trocar de categoria não rouba o foco da coluna
+  // Foco inicial: vale até algum item da lista receber foco de verdade (o FlashList só monta
+  // as linhas após o layout). Depois disso, trocar de categoria não rouba o foco da coluna.
   const initialFocus = useRef(true);
-  useEffect(() => {
-    if (live.length > 0) initialFocus.current = false;
-  }, [live.length]);
+  const settleFocus = () => {
+    initialFocus.current = false;
+  };
 
   const categories = useMemo<CategoryEntry[]>(
     () => [
@@ -127,6 +128,7 @@ export function Live({ category }: { category?: string }) {
               <FocusCard
                 autoFocus={index === 0 && initialFocus.current && channels.length === 0}
                 selected={selectedGroup === item.name}
+                onFocus={settleFocus}
                 style={{ height: CATEGORY_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
                 onPress={() => chooseGroup(item.name)}
               >
@@ -183,7 +185,10 @@ export function Live({ category }: { category?: string }) {
                     autoFocus={index === 0 && initialFocus.current}
                     selected={preview?.id === channel.id}
                     style={{ height: ROW_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', gap: 20, paddingVertical: 8 }}
-                    onFocus={() => setSelectedId(channel.id)}
+                    onFocus={() => {
+                      settleFocus();
+                      setSelectedId(channel.id);
+                    }}
                     onPress={() => play(channel)}
                   >
                     <Text style={{ width: 56, color: colors.textSecondary, fontSize: 26, fontFamily: font.medium }}>{index + 1}</Text>

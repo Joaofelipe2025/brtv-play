@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Image, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
 import { colors, currentAndNext, elapsed, formatHour, type LiveItem } from '@brtv/core';
@@ -53,6 +53,8 @@ function Shade() {
 }
 
 function ChannelThumb({ channel, demo, progress }: { channel: LiveItem; demo: boolean; progress: number | null }) {
+  const [failed, setFailed] = useState(false);
+  const logo = channel.logo && !failed ? channel.logo : null;
   return (
     <View
       style={{
@@ -69,7 +71,16 @@ function ChannelThumb({ channel, demo, progress }: { channel: LiveItem; demo: bo
         pointerEvents="none"
         style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: tintFor(channel.name), opacity: 0.18 }}
       />
-      <Text style={{ color: tintFor(channel.name), fontSize: 48, fontFamily: font.bold }}>{initials(channel.name, 2)}</Text>
+      {logo ? (
+        <Image
+          source={{ uri: logo }}
+          resizeMode="contain"
+          style={{ width: '60%', height: '60%' }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Text style={{ color: tintFor(channel.name), fontSize: 48, fontFamily: font.bold }}>{initials(channel.name, 2)}</Text>
+      )}
       {demo && (
         <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: colors.background, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 2 }}>
           <Text style={{ color: colors.textPrimary, fontSize: 24, fontFamily: font.semibold }}>DEMO</Text>
