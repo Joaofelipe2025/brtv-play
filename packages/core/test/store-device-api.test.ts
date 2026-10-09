@@ -44,7 +44,7 @@ describe('device', () => {
 
 describe('MockBackendService', () => {
   it('retorna trial de 7 dias com playlist de demonstração', async () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const backend = new MockBackendService(() => now);
     const status = await backend.getDeviceStatus('AA:BB:CC:DD:EE:FF', '123456');
     expect(status.status).toBe('trial');

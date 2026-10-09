@@ -4,19 +4,31 @@
   "private": true,
   "description": "BRTV PLAY — reprodutor de IPTV para Android TV e LG webOS (monorepo)",
   "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @brtv/core test",
-    "typecheck": "pnpm -r --filter @brtv/core --filter @brtv/webos typecheck",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm webos:build",
     "webos:dev": "pnpm --filter @brtv/webos dev",
     "webos:build": "pnpm --filter @brtv/webos build",
     "webos:package": "pnpm --filter @brtv/webos package",
+    "webos:device": "pnpm --filter @brtv/webos exec ares-setup-device",
+    "webos:install": "node scripts/webos-install.mjs",
     "android": "pnpm --filter @brtv/android android",
+    "android:start": "pnpm --filter @brtv/android start",
     "brand:assets": "node scripts/generate-brand-assets.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "packageManager": "pnpm@11.25.0",
   "devDependencies": {
-    "@resvg/resvg-js": "^2.6.2"
+    "@eslint/js": "^9.39.5",
+    "@resvg/resvg-js": "^2.6.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1"
   }
 }

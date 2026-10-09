@@ -1,0 +1,8 @@
+# Finais de linha consistentes em Windows, macOS e CI
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ipk binary
