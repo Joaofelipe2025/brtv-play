@@ -21,7 +21,11 @@ export type LibraryFetch = (url: string) => Promise<{
   json(): Promise<unknown>;
   text(): Promise<string>;
   body?: { getReader(): BodyReader } | null;
+  headers?: { get(name: string): string | null };
 }>;
+
+/** Sem streaming, um XMLTV acima disto (lido como uma única string) derruba TV Box com pouca RAM. */
+export const EPG_MAX_UNSTREAMED_BYTES = 60 * 1024 * 1024;
 
 /** TextDecoder existe em todos os runtimes alvo; declarado aqui porque o tsconfig do Android não traz a lib DOM. */
 declare const TextDecoder: new () => { decode(input?: Uint8Array, options?: { stream?: boolean }): string };
@@ -209,7 +213,9 @@ export async function loadEpg(
     if (!response.ok) return new Map();
     const body = response.body;
     if (!body) {
-      // React Native não expõe `body`: lê tudo como um único chunk.
+      // Sem `body` (fetch do React Native): lê tudo como um único chunk, se couber na memória.
+      const length = Number(response.headers?.get('content-length') ?? '');
+      if (Number.isFinite(length) && length > EPG_MAX_UNSTREAMED_BYTES) return new Map();
       const text = await response.text();
       return await parseXmltvStream(singleChunk(text));
     }

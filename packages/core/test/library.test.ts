@@ -136,6 +136,55 @@ describe('loadEpg', () => {
     expect(epg.get('a.br')?.[0]?.title).toBe('Jornal');
   });
 
+  it('sem body, ignora XMLTV acima de 60 MB sem ler o texto', async () => {
+    let textCalled = false;
+    const fetchFn: LibraryFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => (name.toLowerCase() === 'content-length' ? String(61 * 1024 * 1024) : null) },
+      json: async () => ({}),
+      text: async () => {
+        textCalled = true;
+        return XMLTV;
+      },
+    });
+    expect((await loadEpg('http://x/epg', fetchFn)).size).toBe(0);
+    expect(textCalled).toBe(false);
+  });
+
+  it('sem body, lê XMLTV com content-length dentro do limite', async () => {
+    const fetchFn: LibraryFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => (name.toLowerCase() === 'content-length' ? String(XMLTV.length) : null) },
+      json: async () => ({}),
+      text: async () => XMLTV,
+    });
+    expect((await loadEpg('http://x/epg', fetchFn)).get('a.br')?.length).toBe(1);
+  });
+
+  it('com body, o limite de tamanho não se aplica (streaming)', async () => {
+    const bytes = new TextEncoder().encode(XMLTV);
+    let sent = false;
+    const fetchFn: LibraryFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => String(500 * 1024 * 1024) },
+      json: async () => ({}),
+      text: async () => '',
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (sent) return { done: true, value: undefined };
+            sent = true;
+            return { done: false, value: bytes };
+          },
+        }),
+      },
+    });
+    expect((await loadEpg('http://x/epg', fetchFn)).get('a.br')?.length).toBe(1);
+  });
+
   it('lê o body em streaming quando existe', async () => {
     const bytes = new TextEncoder().encode(XMLTV);
     let sent = false;
