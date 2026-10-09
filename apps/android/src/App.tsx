@@ -15,6 +15,8 @@ import { Player } from './Player';
 import { AppContext, type AppContextValue, type Route, type Session } from './navigation';
 import { Activation } from './screens/Activation';
 import { Playlists } from './screens/Playlists';
+import { Home } from './screens/Home';
+import { Live } from './screens/Live';
 import { Placeholder } from './screens/Placeholder';
 
 const INITIAL_ROUTE: Route = { name: 'activation' };
@@ -112,10 +114,10 @@ export default function App() {
       screen = <Playlists />;
       break;
     case 'home':
-      screen = <Placeholder title="Início" active="home" />;
+      screen = <Home />;
       break;
     case 'live':
-      screen = <Placeholder title="TV ao vivo" active="live" />;
+      screen = <Live category={route.category} />;
       break;
     case 'movies':
       screen = <Placeholder title="Filmes" active="movies" />;
