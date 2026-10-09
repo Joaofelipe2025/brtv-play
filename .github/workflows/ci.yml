@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Lint, tipos, testes e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Versão do pnpm vem de "packageManager" no package.json
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck (core, webOS, Android)
+        run: pnpm typecheck
+
+      - name: Testes (core)
+        run: pnpm test
+
+      - name: Build e pacote do webOS (.ipk)
+        run: pnpm webos:package
+
+      - name: Publicar o .ipk como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: brtv-play-webos-ipk
+          path: dist-ipk/*.ipk
+          if-no-files-found: error
+          retention-days: 14
