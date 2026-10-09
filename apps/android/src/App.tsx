@@ -17,7 +17,8 @@ import { Activation } from './screens/Activation';
 import { Playlists } from './screens/Playlists';
 import { Home } from './screens/Home';
 import { Live } from './screens/Live';
-import { Placeholder } from './screens/Placeholder';
+import { Movies, Series, SeriesDetail } from './screens/Vod';
+import { About, Settings } from './screens/Settings';
 
 const INITIAL_ROUTE: Route = { name: 'activation' };
 
@@ -120,19 +121,19 @@ export default function App() {
       screen = <Live category={route.category} />;
       break;
     case 'movies':
-      screen = <Placeholder title="Filmes" active="movies" />;
+      screen = <Movies category={route.category} />;
       break;
     case 'series':
-      screen = <Placeholder title="Séries" active="series" />;
+      screen = <Series category={route.category} />;
       break;
     case 'seriesDetail':
-      screen = <Placeholder title="Série" active="series" />;
+      screen = <SeriesDetail seriesId={route.seriesId} />;
       break;
     case 'settings':
-      screen = <Placeholder title="Configurações" active="settings" />;
+      screen = <Settings />;
       break;
     case 'about':
-      screen = <Placeholder title="Sobre" />;
+      screen = <About />;
       break;
     case 'player': {
       const channels = route.channels ?? [];
