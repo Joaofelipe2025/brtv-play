@@ -10,8 +10,9 @@ import {
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
 import { currentAndNext, loadEpg, loadLibrary, loadOrCreateDevice } from '@brtv/core';
-import { asyncAdapter, loadPreferences, store } from './platform';
+import { asyncAdapter, loadPreferences, store, streamingFetch } from './platform';
 import { Player } from './Player';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppContext, type AppContextValue, type Route, type Session } from './navigation';
 import { Activation } from './screens/Activation';
 import { Playlists } from './screens/Playlists';
@@ -86,7 +87,7 @@ export default function App() {
         const library = await loadLibrary(playlist, session.prefs.streamFormat);
         if (cancelled) return;
         update({ library, loading: false });
-        const epg = await loadEpg(library.epgUrl);
+        const epg = await loadEpg(library.epgUrl, streamingFetch);
         if (!cancelled) update({ epg });
       } catch {
         if (!cancelled) update({ library: null, loading: false, epg: new Map() });
@@ -146,6 +147,7 @@ export default function App() {
           url={route.url}
           title={route.title}
           isLive={route.isLive}
+          id={route.id}
           {...(channel
             ? {
                 channelNumber: index + 1,
@@ -170,7 +172,13 @@ export default function App() {
   return (
     <AppContext.Provider value={value}>
       <StatusBar style="light" />
-      {screen}
+      {/* Uma tela que quebra mostra uma saída em vez de tela preta; nova tela, novo boundary */}
+      <ErrorBoundary
+        key={`${stack.length}:${route.name}`}
+        onRecover={() => reset(session.playlist ? { name: 'home' } : INITIAL_ROUTE)}
+      >
+        {screen}
+      </ErrorBoundary>
     </AppContext.Provider>
   );
 }

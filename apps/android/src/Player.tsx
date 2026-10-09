@@ -24,12 +24,15 @@ import {
   mapAndroidKey,
   type RemoteAction,
 } from '@brtv/core';
+import { store } from './platform';
 import { Body, FocusCard, Text, Title, styles } from './ui';
 
 export interface PlayerProps {
   url: string;
   title: string;
   isLive: boolean;
+  /** Id para histórico e posição salva (VOD e episódios); sem ele, o histórico usa a URL. */
+  id?: string;
   /** Número (1-based) do canal na lista. */
   channelNumber?: number;
   total?: number;
@@ -47,6 +50,7 @@ const NOTICE_MS = 3000;
 const STALL_POLL_MS = 1000;
 const DIGIT_POLL_MS = 250;
 const SEEK_STEP_S = 10;
+const SAVE_EVERY_MS = 5000;
 /** Valores definidos pela especificação para HLS ao vivo em TV Box. */
 const BUFFER_CONFIG = {
   minBufferMs: 15000,
@@ -71,6 +75,7 @@ export function Player({
   url,
   title,
   isLive,
+  id,
   channelNumber,
   total,
   onChannel,
@@ -157,6 +162,24 @@ export function Player({
     },
     [],
   );
+
+  // Histórico
+  useEffect(() => {
+    store.getState().addHistory({ id: id ?? url, type: isLive ? 'live' : 'vod', title });
+  }, [id, isLive, url, title]);
+
+  // VOD: salva a posição a cada 5 s tocando e ao sair ou trocar de conteúdo
+  useEffect(() => {
+    if (isLive || !id) return;
+    const timer = setInterval(() => {
+      const { status: s, paused: p } = live.current;
+      if (s === 'playing' && !p && lastTime.current > 0) store.getState().setPosition(id, lastTime.current);
+    }, SAVE_EVERY_MS);
+    return () => {
+      clearInterval(timer);
+      if (lastTime.current > 0) store.getState().setPosition(id, lastTime.current);
+    };
+  }, [id, isLive, url]);
 
   // Falha (erro do player ou travamento): reconecta com backoff ou desiste
   const handleFailure = useCallback(() => {
@@ -302,8 +325,12 @@ export function Player({
     (e: OnLoadData) => {
       // onLoad vem antes de qualquer quadro: só guarda a duração; "tocando" é confirmado abaixo
       setTime((t) => ({ ...t, duration: e.duration }));
+      // VOD: retoma a posição salva (nem nos primeiros segundos, nem colada no fim)
+      if (isLive || !id) return;
+      const saved = store.getState().continueWatching[id] ?? 0;
+      if (saved > 5 && saved < e.duration - 10) videoRef.current?.seek(saved);
     },
-    [],
+    [id, isLive],
   );
 
   // Reprodução confirmada: só aqui o contador de reconexão volta a zero
