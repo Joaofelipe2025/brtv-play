@@ -1,137 +1,166 @@
 # BRTV PLAY
 
-Reprodutor de IPTV para Android / Android TV e LG webOS.
+Reprodutor de IPTV para **LG webOS** e **Android TV** (também roda em celular e tablet Android).
 
 > O BRTV PLAY é apenas um reprodutor. Não fornece nenhum conteúdo. O usuário é responsável pelas listas que adiciona.
+
+A pessoa cadastra a lista (M3U ou conta Xtream Codes) num portal web, vinculada ao MAC e à chave que o aparelho mostra na tela de ativação. O app só reproduz o que foi cadastrado.
 
 ## Estrutura
 
 ```
 brtv-play/
-  packages/core/   lógica compartilhada em TypeScript (device, M3U, Xtream, EPG, store, tokens)
-  apps/android/    Expo + react-native-tvos (celular, tablet e Android TV)
-  apps/webos/      React + Vite + hls.js (LG webOS)
-  docs/            specs de design
+├── packages/core/        Lógica compartilhada em TypeScript, sem UI, com testes (Vitest)
+│   └── src/              device, backend (mock), M3U/Xtream/EPG, biblioteca, reprodução,
+│                         controle parental, store, teclas do controle, tema, formatação
+├── apps/webos/           LG webOS: React + Vite + hls.js/mpegts.js
+├── apps/android/         Android TV e celular: Expo + react-native-tvos + react-native-video
+├── assets/brand/         Logo oficial (fonte e versão otimizada)
+├── scripts/              Geração de ícones/banners e instalação na TV
+├── docs/
+│   ├── PUBLICACAO.md     Como publicar na LG Content Store e na Google Play
+│   └── superpowers/      Specs de design e planos de implementação
+└── .github/              CI (GitHub Actions) e modelo de Pull Request
 ```
 
-Pré-requisitos: Node 18+ e pnpm 11.
+Regra da casa: o que não é tela vai para `packages/core`, com teste. Os dois apps só consomem.
+
+## Começando
+
+Pré-requisitos: **Node 22** (veja `.nvmrc`) e **pnpm 11**.
 
 ```bash
 pnpm install
-pnpm test
-pnpm typecheck
+pnpm check
 ```
 
-## Android / Android TV
+`pnpm check` roda lint, typecheck dos três pacotes, testes e o build do webOS. É o mesmo que o CI roda em todo Pull Request.
 
-Pré-requisitos extras: JDK 17, Android Studio com Android SDK, e uma AVD de **Android TV** (imagem Google TV ou Android TV).
+## Comandos
 
-1. Criar a AVD: Android Studio → Device Manager → Create virtual device → categoria **TV** → imagem com Google APIs.
-2. Iniciar a AVD.
-3. Na raiz do repositório:
-
-```bash
-pnpm android
-```
-
-O comando executa `expo run:android` (gera um dev build; o Expo Go não serve, porque `react-native-tvos` e `react-native-video` são módulos nativos).
-
-Pontos de atenção:
-- O manifest é ajustado pelo plugin `apps/android/plugins/withLeanback.js`: leanback como **não obrigatório**, banner da TV e intent `LEANBACK_LAUNCHER`.
-- O banner da TV (`apps/android/assets/tv_banner.png`) é copiado para `res/drawable` pelo mesmo plugin durante o prebuild.
-- O `react-native` está apontado para `react-native-tvos@0.76.6-0` (ver `apps/android/package.json`).
-
-## Marca
-
-O logo oficial fica em `assets/brand/logo-dark.svg` (versão otimizada, `viewBox` recortado). Depois de trocar o logo, rode:
-
-```bash
-pnpm brand:assets
-```
-
-O script gera os ícones do webOS (`icon.png` 80x80, `largeIcon.png` 130x130), o banner do Android TV (`tv_banner.png` 320x180), o ícone do Android e `packages/core/src/brand.generated.ts`, que os dois apps usam para desenhar o logo.
+| Comando | O que faz |
+|---|---|
+| `pnpm check` | Lint, typecheck, testes e build do webOS |
+| `pnpm lint` / `pnpm lint:fix` | ESLint (sem `any`, regras de hooks do React) |
+| `pnpm typecheck` | `tsc --noEmit` no core, no webOS e no Android |
+| `pnpm test` | Testes do core (Vitest) |
+| `pnpm webos:dev` | webOS no navegador, com recarga automática |
+| `pnpm webos:build` | Build de produção do webOS em `apps/webos/dist` |
+| `pnpm webos:package` | Build + `.ipk` em `dist-ipk/` |
+| `pnpm webos:device` | Registra uma TV LG em modo desenvolvedor |
+| `pnpm webos:install [tv]` | Instala o `.ipk` mais recente na TV e abre o app |
+| `pnpm android` | Build de desenvolvimento e execução no emulador/aparelho Android |
+| `pnpm android:start` | Só o servidor do Metro (com um dev build já instalado) |
+| `pnpm brand:assets` | Regera ícones, banner e o logo usado pelos apps |
 
 ## LG webOS
 
 Versão mínima: **webOS 5** (Chromium 68). O CSS evita recursos mais novos (`gap` em flex, `aspect-ratio`, `inset`) e o build compila para `chrome68`.
 
-### Desenvolvimento no navegador
+### No navegador
 
 ```bash
 pnpm webos:dev
 ```
 
-Abre em `http://127.0.0.1:5173`. Para simular o controle, use as setas do teclado, Enter (OK) e Escape (Voltar). Ajuste a janela do navegador para 1920x1080.
+Abra a URL que o Vite mostrar e deixe a janela em 1920x1080. O controle é simulado pelo teclado (tabela abaixo).
 
-### Gerar o .ipk
+### Numa TV LG (modo desenvolvedor)
 
-Pré-requisito: CLI do webOS TV.
+1. Na TV, instale o app **Developer Mode** pela LG Content Store, entre com sua conta LG Developer e ative o modo. Anote o IP e a passphrase.
+2. Registre a TV (nome sugerido: `tv`; porta 9922; usuário `prisoner`):
 
-```bash
-npm install -g @webos-tools/cli
-pnpm webos:package
-```
+   ```bash
+   pnpm webos:device
+   ```
 
-O `.ipk` é gerado em `dist-ipk/`.
+3. Gere o pacote e instale:
 
-Os ícones referenciados em `appinfo.json` já são gerados por `pnpm brand:assets`.
+   ```bash
+   pnpm webos:package
+   pnpm webos:install tv
+   ```
 
-### Instalar numa TV LG (modo desenvolvedor)
+O CLI do webOS (`@webos-tools/cli`) vem como dependência do projeto; não precisa instalar nada global. O CI também publica o `.ipk` de cada execução como artefato (aba **Actions** → execução → `brtv-play-webos-ipk`).
 
-1. Na TV, instale o app **Developer Mode** pela LG Content Store e faça login com sua conta LG Developer.
-2. Ative o **Developer Mode** e anote o IP da TV e a chave (passphrase) exibidos no app.
-3. No computador, registre a TV:
+## Android TV
 
-```bash
-ares-setup-device
-```
-
-Siga as perguntas (nome, IP, porta 9922, usuário `prisoner`). Se pedir chave SSH, use a chave gerada pelo `ares-novacom` / `ares-setup-device` conforme o guia da LG.
-
-4. Instale o pacote:
+Pré-requisitos extras: **JDK 17**, **Android Studio** com Android SDK e uma AVD de **Android TV** (Device Manager → Create virtual device → categoria TV → imagem com Google APIs).
 
 ```bash
-ares-install --device <nome-da-tv> dist-ipk/app.brtvplay.player_0.1.0_all.ipk
+pnpm android
 ```
 
-5. Abra o app:
+O comando gera um *dev build* (`expo run:android`). O Expo Go não serve, porque `react-native-tvos` e `react-native-video` são módulos nativos.
 
-```bash
-ares-launch --device <nome-da-tv> app.brtvplay.player
-```
-
-## Backend
-
-Toda comunicação com servidor passa por `BackendService`, definido em `packages/core/src/api.ts`.
-
-- Nesta fase, o app usa `MockBackendService` (trial de 7 dias e uma playlist de demonstração com streams públicos de teste da Mux).
-- Para ligar o backend real (Supabase), implemente a interface `BackendService` com `getDeviceStatus(mac, key)` e injete a instância:
-  - Android: `apps/android/src/App.tsx` (`const backend = new MockBackendService()`).
-  - webOS: `apps/webos/src/library.ts` (`export const backend`).
-
-Nenhuma URL de conteúdo real ou comercial está no código.
+- `react-native` aponta para `react-native-tvos@0.76.6-0`.
+- O plugin `apps/android/plugins/withLeanback.js` ajusta o manifesto: leanback, toque e faketouch como **não obrigatórios** (o app aparece para TVs na Play Store), banner da TV e intent `LEANBACK_LAUNCHER`. O banner é copiado de `apps/android/assets/tv_banner.png`.
 
 ## Controles
 
-| Ação | Android TV | LG webOS | Navegador |
+| Ação | Android TV | LG webOS | Teclado (navegador) |
 |---|---|---|---|
-| Mover foco | D-pad | setas | setas |
-| OK | DPad center | 13 | Enter |
-| Voltar | Back | 461 | Escape |
-| CH+ / CH- | cima / baixo (no player) | 427 / 428 | — |
+| Mover foco | D-pad | Setas | Setas |
+| OK | Centro do D-pad | OK | Enter |
+| Voltar (no player: 1º esconde o painel, 2º sai) | Voltar | Voltar | Esc |
+| Trocar canal (ao vivo) | Cima/baixo, CH+/CH- | Cima/baixo, CH+/CH- | Cima/baixo, Page Up/Down |
+| Ir ao canal N | Números | Números | Números |
+| Pausar/continuar | Play/Pause | Play, Pause | OK em "Pausar" |
+| Voltar/avançar 10 s (filmes) | Esquerda/direita, ⏪/⏩ | Esquerda/direita, ⏪/⏩ | Esquerda/direita |
 
-## Testes
+## Player
+
+Regras iguais nas duas plataformas, definidas no core (`packages/core/src/playback.ts`):
+
+- **Reconexão:** até 3 tentativas, com espera de 1 s, 2 s e 4 s. Depois disso aparece "Tentar de novo".
+- **Travamento:** se o vídeo fica 12 s parado sem estar pausado, conta como falha e entra na reconexão.
+- **Canal por número:** até 4 dígitos; a troca acontece 1,5 s depois do último.
+
+No webOS, Configurações → "Motor de vídeo" escolhe entre o player nativo da TV, o hls.js ou o automático (nativo na TV LG, hls.js no navegador).
+
+## Controle parental
+
+O PIN de 4 dígitos é definido em Configurações, junto com as categorias bloqueadas. Uma categoria bloqueada não aparece na Início, nos Favoritos, na troca de canal nem na busca, e abri-la pede o PIN (`packages/core/src/parental.ts`). O desbloqueio vale até o app ser fechado.
+
+O PIN fica só no aparelho. Ele protege contra uso casual, não é uma barreira de segurança.
+
+## Backend
+
+Toda comunicação com o servidor passa pela interface `BackendService` (`packages/core/src/api.ts`).
+
+- Hoje o app usa `MockBackendService`: teste grátis de 7 dias e uma lista de demonstração com streams públicos de teste da Mux (ao vivo, filmes e uma série).
+- Para ligar o backend real (Supabase), implemente `getDeviceStatus(mac, key)` e troque a instância em um único lugar por app:
+  - Android: `apps/android/src/backend.ts`
+  - webOS: `apps/webos/src/library.ts` (`export const backend`)
+
+Nenhuma URL de conteúdo real ou comercial está no código.
+
+## Marca
+
+O logo oficial fica em `assets/brand/` (`source/` tem o original exportado do Illustrator; `logo-dark.svg` é a versão otimizada). Depois de trocar o logo:
 
 ```bash
-pnpm test
+pnpm brand:assets
 ```
 
-Cobrem o parser M3U, o cliente Xtream (fetch mockado), o EPG (leitura em chunks), a store (persistência, PIN, categorias bloqueadas), o device e o mock de backend.
+O script gera os ícones do webOS (80x80 e 130x130), o banner do Android TV (320x180), o ícone do Android e `packages/core/src/brand.generated.ts`, usado pelos dois apps.
+
+## Qualidade
+
+- **CI** (`.github/workflows/ci.yml`): em todo push na `main` e em todo Pull Request roda lint, typecheck, testes e gera o `.ipk`.
+- **Testes:** M3U e classificação ao vivo/filmes/séries, Xtream, EPG em streaming, biblioteca, reprodução (reconexão, travamento, canal por número), teclas do controle, controle parental, store, device e formatação.
+- **Padrões:** TypeScript estrito, sem `any`, finais de linha LF (`.gitattributes`, `.editorconfig`).
+
+## Documentação
+
+- [Guia de publicação](docs/PUBLICACAO.md): LG Content Store, Google Play e pontos de atenção para players de IPTV.
+- [Spec de design](docs/superpowers/specs/2026-10-08-brtv-play-design.md)
+- Planos de implementação: [player](docs/superpowers/plans/2026-10-08-player.md), [paridade do Android](docs/superpowers/plans/2026-10-09-android-paridade.md)
 
 ## Limitações conhecidas
 
-- Android: não compilado nesta sessão (JDK e Android SDK não estavam instalados). O código passa no `tsc`, mas o build nativo e o emulador ainda não foram validados.
-- Android: Filmes e Séries ainda não têm tela, e a Início ainda não segue o layout com abas e destaque do webOS.
-- webOS: a troca de áudio funciona com hls.js; no HLS nativo e no MPEG-TS só as legendas são trocáveis.
-- webOS: `.ipk` ainda não gerado (`ares-package` não foi executado nesta máquina).
-- Nenhuma validação em TV física.
+- **Android TV sem validação em aparelho:** o código passa no typecheck e nas revisões, mas não foi executado num emulador. Falta conferir o foco do D-pad, o visual em dp, as teclas do controle e a prévia de vídeo no buffering.
+- **Troca de áudio:** funciona com hls.js e no Android. No HLS nativo do webOS e no MPEG-TS, só as legendas são trocáveis.
+- **EPG:** acima de 60 MB, o guia é ignorado quando o servidor não permite leitura em streaming. A conta usa o tamanho comprimido.
+- **Backend:** ainda é o mock. O portal de ativação (`https://brtvplay.app/ativar`) é um placeholder.
+- **Nenhuma validação em TV LG física.**
