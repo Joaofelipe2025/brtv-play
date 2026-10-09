@@ -20,6 +20,7 @@ import {
   createStallDetector,
   detectStreamKind,
   digitOf,
+  formatClock,
   mapAndroidKey,
   type RemoteAction,
 } from '@brtv/core';
@@ -62,14 +63,6 @@ interface TrackInfo {
 
 function trackLabel(t: TrackInfo | undefined, fallback: string): string {
   return t?.title ?? t?.language ?? fallback;
-}
-
-function formatClock(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 }
 
 const DISABLED_TRACK: SelectedTrack = { type: SelectedTrackType.DISABLED };

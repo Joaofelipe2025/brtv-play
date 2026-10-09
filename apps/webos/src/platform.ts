@@ -2,6 +2,7 @@ import {
   createAppStore,
   MemoryAdapter,
   type KeyValueAdapter,
+  type StreamFormat,
 } from '@brtv/core';
 
 /** Adapter sobre localStorage. Qualquer falha cai para memória (ex.: modo privado). */
@@ -40,7 +41,7 @@ export function hydrateStore(): Promise<void> {
   return store.hydrate();
 }
 
-export type StreamFormat = 'hls' | 'ts';
+export type { StreamFormat };
 
 export type VideoEngine = 'auto' | 'native' | 'hlsjs';
 
