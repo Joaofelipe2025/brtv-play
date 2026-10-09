@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Image, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
-import { colors, currentAndNext, elapsed, formatHour, type LiveItem } from '@brtv/core';
+import { colors, currentAndNext, elapsed, formatHour, unlockedItems, type LiveItem } from '@brtv/core';
 import { store } from '../platform';
 import { useApp } from '../navigation';
 import { FocusCard, Text, font, styles } from '../ui';
@@ -53,8 +53,9 @@ function Shade() {
 }
 
 function ChannelThumb({ channel, demo, progress }: { channel: LiveItem; demo: boolean; progress: number | null }) {
-  const [failed, setFailed] = useState(false);
-  const logo = channel.logo && !failed ? channel.logo : null;
+  // Falha guardada pela URL: células recicladas do trilho não escondem o logo de outro canal
+  const [failed, setFailed] = useState<string | null>(null);
+  const logo = channel.logo && failed !== channel.logo ? channel.logo : null;
   return (
     <View
       style={{
@@ -76,7 +77,7 @@ function ChannelThumb({ channel, demo, progress }: { channel: LiveItem; demo: bo
           source={{ uri: logo }}
           resizeMode="contain"
           style={{ width: '60%', height: '60%' }}
-          onError={() => setFailed(true)}
+          onError={() => setFailed(logo)}
         />
       ) : (
         <Text style={{ color: tintFor(channel.name), fontSize: 48, fontFamily: font.bold }}>{initials(channel.name, 2)}</Text>
@@ -115,7 +116,12 @@ function ChannelThumb({ channel, demo, progress }: { channel: LiveItem; demo: bo
 export function Home() {
   const { session, go } = useApp();
   const history = useStore(store, (s) => s.history);
-  const live = useMemo(() => session.library?.live ?? [], [session.library]);
+  const blocked = useStore(store, (s) => s.blockedCategories);
+  // Destaque, trilho e CH+/CH- só com canais de categorias liberadas
+  const live = useMemo(
+    () => unlockedItems(session.library?.live ?? [], blocked, session.unlockedCategories),
+    [session.library, blocked, session.unlockedCategories],
+  );
   const isDemo = session.playlist?.id === 'demo';
   const now = Date.now();
 

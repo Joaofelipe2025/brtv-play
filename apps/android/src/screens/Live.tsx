@@ -1,8 +1,17 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
-import { colors, currentAndNext, elapsed, formatHour, type LiveItem } from '@brtv/core';
+import {
+  colors,
+  currentAndNext,
+  elapsed,
+  firstUnlockedGroup,
+  formatHour,
+  isGroupLocked,
+  unlockedItems,
+  type LiveItem,
+} from '@brtv/core';
 import { store } from '../platform';
 import { FAVORITES, useApp } from '../navigation';
 import { FocusCard, Text, font, styles } from '../ui';
@@ -34,15 +43,45 @@ export function Live({ category }: { category?: string }) {
     return Array.from(counts, ([name, count]) => ({ name, count }));
   }, [live]);
 
-  const selectedGroup = category ?? groups[0]?.name ?? null;
+  const unlocked = session.unlockedCategories;
+  const isLocked = (group: string) => group !== FAVORITES && isGroupLocked(group, blocked, unlocked);
+
+  // Categoria da rota só vale se ainda existe (a lista pode ter sido recarregada);
+  // sem ela, a primeira categoria que não pede PIN
+  const routeGroup =
+    category === FAVORITES || (category !== undefined && groups.some((g) => g.name === category)) ? category : undefined;
+  const selectedGroup =
+    routeGroup ??
+    firstUnlockedGroup(
+      groups.map((g) => g.name),
+      blocked,
+      unlocked,
+    );
+  // Categoria bloqueada vinda da rota (ex.: "Guia de TV" da Início): pede o PIN antes de mostrar
+  const selectedLocked = selectedGroup !== null && isLocked(selectedGroup);
   const [pendingGroup, setPendingGroup] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const gateGroup = pendingGroup ?? (selectedLocked ? selectedGroup : null);
+
+  // A tela é reaproveitada quando a rota troca de categoria: um PIN pendente não sobrevive à troca
+  useEffect(() => setPendingGroup(null), [category]);
+
+  // Favoritos de categorias bloqueadas só aparecem depois do PIN
+  const favoriteChannels = useMemo(
+    () =>
+      unlockedItems(
+        live.filter((c) => favorites.includes(c.id)),
+        blocked,
+        unlocked,
+      ),
+    [live, favorites, blocked, unlocked],
+  );
 
   const channels: LiveItem[] = useMemo(() => {
-    if (selectedGroup === FAVORITES) return live.filter((c) => favorites.includes(c.id));
-    if (!selectedGroup) return [];
+    if (selectedGroup === FAVORITES) return favoriteChannels;
+    if (!selectedGroup || selectedLocked) return [];
     return live.filter((c) => c.group === selectedGroup);
-  }, [live, selectedGroup, favorites]);
+  }, [live, selectedGroup, selectedLocked, favoriteChannels]);
 
   const preview = channels.find((c) => c.id === selectedId) ?? channels[0] ?? null;
   const previewEpg = preview ? currentAndNext(session.epg, preview.epgId ?? preview.id, now) : null;
@@ -56,7 +95,7 @@ export function Live({ category }: { category?: string }) {
 
   const categories = useMemo<CategoryEntry[]>(
     () => [
-      { key: FAVORITES, name: FAVORITES, label: 'Favoritos', count: String(favorites.length) },
+      { key: FAVORITES, name: FAVORITES, label: 'Favoritos', count: String(favoriteChannels.length) },
       ...groups.map((g) => ({
         key: `g:${g.name}`,
         name: g.name,
@@ -64,11 +103,8 @@ export function Live({ category }: { category?: string }) {
         count: blocked.includes(g.name) ? 'Bloqueada' : String(g.count),
       })),
     ],
-    [groups, favorites.length, blocked],
+    [groups, favoriteChannels.length, blocked],
   );
-
-  const isLocked = (group: string) =>
-    group !== FAVORITES && blocked.includes(group) && !session.unlockedCategories.includes(group);
 
   const chooseGroup = (group: string) => {
     if (isLocked(group)) {
@@ -126,7 +162,7 @@ export function Live({ category }: { category?: string }) {
             keyExtractor={(c) => c.key}
             renderItem={({ item, index }) => (
               <FocusCard
-                autoFocus={index === 0 && initialFocus.current && channels.length === 0}
+                autoFocus={index === 0 && initialFocus.current && channels.length === 0 && !gateGroup}
                 selected={selectedGroup === item.name}
                 onFocus={settleFocus}
                 style={{ height: CATEGORY_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
@@ -151,15 +187,28 @@ export function Live({ category }: { category?: string }) {
 
         {/* Canais */}
         <View style={{ flex: 2 }}>
-          {pendingGroup ? (
+          {gateGroup ? (
             <PinGate
-              category={pendingGroup}
+              category={gateGroup}
               onUnlock={() => {
-                update({ unlockedCategories: [...session.unlockedCategories, pendingGroup] });
-                replace({ name: 'live', category: pendingGroup });
+                update({ unlockedCategories: [...unlocked, gateGroup] });
+                replace({ name: 'live', category: gateGroup });
+                initialFocus.current = true;
                 setPendingGroup(null);
               }}
-              onCancel={() => setPendingGroup(null)}
+              onCancel={() => {
+                initialFocus.current = true;
+                setPendingGroup(null);
+                // Cancelou o PIN da categoria da rota: volta para a primeira que não pede PIN
+                if (!pendingGroup) {
+                  const fallback = firstUnlockedGroup(
+                    groups.map((g) => g.name),
+                    blocked,
+                    unlocked,
+                  );
+                  replace(fallback ? { name: 'live', category: fallback } : { name: 'live' });
+                }
+              }}
             />
           ) : channels.length === 0 ? (
             <View style={{ marginTop: 80, alignItems: 'center', gap: 12 }}>

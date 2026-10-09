@@ -2,7 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
-import { colors, formatClock, loadSeasons, type EpisodeItem } from '@brtv/core';
+import {
+  colors,
+  firstUnlockedGroup,
+  formatClock,
+  isGroupLocked,
+  loadSeasons,
+  unlockedItems,
+  type EpisodeItem,
+} from '@brtv/core';
 import { store } from '../platform';
 import { useApp, type Route } from '../navigation';
 import { FocusCard, Text, font, styles } from '../ui';
@@ -107,21 +115,27 @@ function VodBrowser({
   const [pending, setPending] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
+  const unlocked = session.unlockedCategories;
   const groups = useMemo(() => Array.from(new Set(entries.map((e) => e.group))), [entries]);
-  const activeGroup = category ?? groups[0] ?? null;
+  // Categoria da rota só vale se ainda existe (a lista pode ter sido recarregada);
+  // sem ela, a primeira categoria que não pede PIN
+  const activeGroup =
+    (category !== undefined && groups.includes(category) ? category : null) ??
+    firstUnlockedGroup(groups, blocked, unlocked);
+  // Categoria bloqueada vinda da rota: pede o PIN antes de mostrar
+  const activeLocked = activeGroup !== null && isGroupLocked(activeGroup, blocked, unlocked);
+  const gate = pending ?? (activeLocked ? activeGroup : null);
+
+  // A tela é reaproveitada quando a rota troca de categoria: um PIN pendente não sobrevive à troca
+  useEffect(() => setPending(null), [category]);
 
   // Com busca, procura em todas as categorias liberadas
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (q) {
-      return entries.filter(
-        (e) =>
-          e.name.toLowerCase().includes(q) &&
-          (!blocked.includes(e.group) || session.unlockedCategories.includes(e.group)),
-      );
-    }
+    if (q) return unlockedItems(entries, blocked, unlocked).filter((e) => e.name.toLowerCase().includes(q));
+    if (activeLocked) return [];
     return entries.filter((e) => e.group === activeGroup);
-  }, [entries, activeGroup, query, blocked, session.unlockedCategories]);
+  }, [entries, activeGroup, activeLocked, query, blocked, unlocked]);
 
   const focused = visible.find((e) => e.id === focusedId) ?? visible[0] ?? null;
   const resumeAt = focused ? positions[focused.id] : undefined;
@@ -138,7 +152,7 @@ function VodBrowser({
   const cellHeight = Math.round(posterWidth * 1.5) + CAPTION_HEIGHT + CELL_PADDING * 2 + CELL_MARGIN * 2;
 
   const choose = (g: string) => {
-    if (blocked.includes(g) && !session.unlockedCategories.includes(g)) {
+    if (isGroupLocked(g, blocked, unlocked)) {
       setPending(g);
       return;
     }
@@ -171,18 +185,23 @@ function VodBrowser({
       {focused && <Backdrop src={focused.poster} title={focused.name} />}
       <TopBar active={routeName} />
 
-      {pending ? (
+      {gate ? (
         <PinGate
-          category={pending}
+          category={gate}
           onUnlock={() => {
-            update({ unlockedCategories: [...session.unlockedCategories, pending] });
-            replace({ name: routeName, category: pending } as Route);
+            update({ unlockedCategories: [...unlocked, gate] });
+            replace({ name: routeName, category: gate } as Route);
             initialFocus.current = true;
             setPending(null);
           }}
           onCancel={() => {
             initialFocus.current = true;
             setPending(null);
+            // Cancelou o PIN da categoria da rota: volta para a primeira que não pede PIN
+            if (!pending) {
+              const fallback = firstUnlockedGroup(groups, blocked, unlocked);
+              replace((fallback ? { name: routeName, category: fallback } : { name: routeName }) as Route);
+            }
           }}
         />
       ) : (
@@ -255,9 +274,11 @@ function VodBrowser({
 
           <View style={{ flex: 1 }}>
             {visible.length === 0 ? (
-              <Text style={{ color: colors.textSecondary, fontSize: 26, marginTop: 40 }}>
-                Nada encontrado para “{query}”.
-              </Text>
+              query.trim() ? (
+                <Text style={{ color: colors.textSecondary, fontSize: 26, marginTop: 40 }}>
+                  Nada encontrado para “{query}”.
+                </Text>
+              ) : null
             ) : (
               <FlashList
                 data={visible}

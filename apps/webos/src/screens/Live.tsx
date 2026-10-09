@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
-import { currentAndNext } from '@brtv/core';
+import { currentAndNext, firstUnlockedGroup, isGroupLocked, unlockedItems } from '@brtv/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { FAVORITES, useApp } from '../context';
 import { useAutoFocus } from '../hooks';
@@ -27,15 +27,45 @@ export function Live({ category }: { category?: string }) {
     return Array.from(counts, ([name, count]) => ({ name, count }));
   }, [live]);
 
-  const selectedGroup = category ?? groups[0]?.name ?? null;
+  const unlocked = session.unlockedCategories;
+  const isLocked = (group: string) => group !== FAVORITES && isGroupLocked(group, blocked, unlocked);
+
+  // Categoria da rota só vale se ainda existe (a lista pode ter sido recarregada);
+  // sem ela, a primeira categoria que não pede PIN
+  const routeGroup =
+    category === FAVORITES || (category !== undefined && groups.some((g) => g.name === category)) ? category : undefined;
+  const selectedGroup =
+    routeGroup ??
+    firstUnlockedGroup(
+      groups.map((g) => g.name),
+      blocked,
+      unlocked,
+    );
+  // Categoria bloqueada vinda da rota (ex.: "Guia de TV" da Início): pede o PIN antes de mostrar
+  const selectedLocked = selectedGroup !== null && isLocked(selectedGroup);
   const [pendingGroup, setPendingGroup] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const gateGroup = pendingGroup ?? (selectedLocked ? selectedGroup : null);
+
+  // A tela é reaproveitada quando a rota troca de categoria: um PIN pendente não sobrevive à troca
+  useEffect(() => setPendingGroup(null), [category]);
+
+  // Favoritos de categorias bloqueadas só aparecem depois do PIN
+  const favoriteChannels = useMemo(
+    () =>
+      unlockedItems(
+        live.filter((c) => favorites.includes(c.id)),
+        blocked,
+        unlocked,
+      ),
+    [live, favorites, blocked, unlocked],
+  );
 
   const channels: LiveItem[] = useMemo(() => {
-    if (selectedGroup === FAVORITES) return live.filter((c) => favorites.includes(c.id));
-    if (!selectedGroup) return [];
+    if (selectedGroup === FAVORITES) return favoriteChannels;
+    if (!selectedGroup || selectedLocked) return [];
     return live.filter((c) => c.group === selectedGroup);
-  }, [live, selectedGroup, favorites]);
+  }, [live, selectedGroup, selectedLocked, favoriteChannels]);
 
   const preview = channels.find((c) => c.id === selectedId) ?? channels[0] ?? null;
   const previewEpg = preview ? currentAndNext(session.epg, preview.epgId ?? preview.id, now) : null;
@@ -49,9 +79,6 @@ export function Live({ category }: { category?: string }) {
   });
 
   useAutoFocus(live.length > 0, [live.length]);
-
-  const isLocked = (group: string) =>
-    group !== FAVORITES && blocked.includes(group) && !session.unlockedCategories.includes(group);
 
   const chooseGroup = (group: string) => {
     if (isLocked(group)) {
@@ -100,7 +127,7 @@ export function Live({ category }: { category?: string }) {
             onClick={() => chooseGroup(FAVORITES)}
           >
             Favoritos
-            <span className="count">{favorites.length}</span>
+            <span className="count">{favoriteChannels.length}</span>
           </button>
           {groups.map((g) => (
             <button
@@ -117,15 +144,26 @@ export function Live({ category }: { category?: string }) {
 
         {/* Canais */}
         <div ref={listRef} className="scroll" style={{ position: 'relative' }}>
-          {pendingGroup ? (
+          {gateGroup ? (
             <PinGate
-              category={pendingGroup}
+              category={gateGroup}
               onUnlock={() => {
-                update({ unlockedCategories: [...session.unlockedCategories, pendingGroup] });
-                replace({ name: 'live', category: pendingGroup });
+                update({ unlockedCategories: [...unlocked, gateGroup] });
+                replace({ name: 'live', category: gateGroup });
                 setPendingGroup(null);
               }}
-              onCancel={() => setPendingGroup(null)}
+              onCancel={() => {
+                setPendingGroup(null);
+                // Cancelou o PIN da categoria da rota: volta para a primeira que não pede PIN
+                if (!pendingGroup) {
+                  const fallback = firstUnlockedGroup(
+                    groups.map((g) => g.name),
+                    blocked,
+                    unlocked,
+                  );
+                  replace(fallback ? { name: 'live', category: fallback } : { name: 'live' });
+                }
+              }}
             />
           ) : channels.length === 0 ? (
             <div className="empty" style={{ marginTop: 80 }}>

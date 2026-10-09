@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
-import { currentAndNext } from '@brtv/core';
+import { currentAndNext, unlockedItems } from '@brtv/core';
 import { useStore } from 'zustand';
 import { useApp } from '../context';
 import { useAutoFocus, useDebounced } from '../hooks';
@@ -51,8 +51,13 @@ function ChannelThumb({ channel, badge, progress }: { channel: LiveItem; badge?:
 export function Home() {
   const { session, go } = useApp();
   const history = useStore(store, (s) => s.history);
+  const blocked = useStore(store, (s) => s.blockedCategories);
   const library = session.library;
-  const live = useMemo(() => library?.live ?? [], [library]);
+  // Destaque, trilho e CH+/CH- só com canais de categorias liberadas
+  const live = useMemo(
+    () => unlockedItems(library?.live ?? [], blocked, session.unlockedCategories),
+    [library, blocked, session.unlockedCategories],
+  );
   const isDemo = session.playlist?.id === 'demo';
   const now = Date.now();
 
