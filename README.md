@@ -51,6 +51,8 @@ pnpm check
 | `pnpm webos:install [tv]` | Instala o `.ipk` mais recente na TV e abre o app |
 | `pnpm android` | Build de desenvolvimento e execução no emulador/aparelho Android |
 | `pnpm android:start` | Só o servidor do Metro (com um dev build já instalado) |
+| `pnpm android:apk` | APK para instalar direto (EAS Build, na nuvem) |
+| `pnpm android:store` | AAB para a Google Play (EAS Build, na nuvem) |
 | `pnpm brand:assets` | Regera ícones, banner e o logo usado pelos apps |
 
 ## LG webOS
@@ -154,6 +156,7 @@ O script gera os ícones do webOS (80x80 e 130x130), o banner do Android TV (320
 ## Documentação
 
 - [Guia de publicação](docs/PUBLICACAO.md): LG Content Store, Google Play e pontos de atenção para players de IPTV.
+- [Instalar no projetor ou TV Android sem a Play Store](docs/INSTALAR-NO-PROJETOR.md): APK gerado na nuvem pela Expo.
 - [Spec de design](docs/superpowers/specs/2026-10-08-brtv-play-design.md)
 - Planos de implementação: [player](docs/superpowers/plans/2026-10-08-player.md), [paridade do Android](docs/superpowers/plans/2026-10-09-android-paridade.md)
 

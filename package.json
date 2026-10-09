@@ -16,6 +16,8 @@
     "webos:install": "node scripts/webos-install.mjs",
     "android": "pnpm --filter @brtv/android android",
     "android:start": "pnpm --filter @brtv/android start",
+    "android:apk": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile preview",
+    "android:store": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile production",
     "brand:assets": "node scripts/generate-brand-assets.mjs"
   },
   "engines": {
