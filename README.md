@@ -53,6 +53,8 @@ pnpm check
 | `pnpm android:start` | Só o servidor do Metro (com um dev build já instalado) |
 | `pnpm android:apk` | APK para instalar direto (EAS Build, na nuvem) |
 | `pnpm android:store` | AAB para a Google Play (EAS Build, na nuvem) |
+| `pnpm android:serve` | Serve o último APK na rede local para instalar no projetor/TV |
+| `pnpm android:update` | Publica uma atualização automática (EAS Update) para os aparelhos |
 | `pnpm brand:assets` | Regera ícones, banner e o logo usado pelos apps |
 
 ## LG webOS
@@ -160,10 +162,23 @@ O script gera os ícones do webOS (80x80 e 130x130), o banner do Android TV (320
 - [Spec de design](docs/superpowers/specs/2026-10-08-brtv-play-design.md)
 - Planos de implementação: [player](docs/superpowers/plans/2026-10-08-player.md), [paridade do Android](docs/superpowers/plans/2026-10-09-android-paridade.md)
 
+## Listas próprias
+
+Enquanto o backend não existe, a pessoa cadastra a própria lista direto no aparelho, em Configurações → Minhas listas → Adicionar lista:
+
+- **Xtream Codes:** servidor, usuário e senha.
+- **Link M3U:** uma URL (um link `get.php` do Xtream é reconhecido e tratado como Xtream). Fontes públicas e legítimas para teste, só canais abertos/gratuitos: `https://iptv-org.github.io/iptv/countries/br.m3u` e `https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8`.
+
+A lista fica salva **só no aparelho** (`packages/core/src/userPlaylists.ts`), nunca no código nem em serviços externos. Servidores Xtream por `http://` exigem o APK com cleartext habilitado (já configurado em `apps/android/app.json`).
+
+## Instalar no projetor / TV Android
+
+Sem Android SDK local, o APK é gerado na nuvem (EAS Build) e instalado sem loja. Ver [docs/INSTALAR-NO-PROJETOR.md](docs/INSTALAR-NO-PROJETOR.md). Depois do primeiro APK, novas versões de código e conteúdo chegam por **atualização automática** (`pnpm android:update`), sem reinstalar — só mudanças nativas pedem um APK novo.
+
 ## Limitações conhecidas
 
-- **Android TV sem validação em aparelho:** o código passa no typecheck e nas revisões, mas não foi executado num emulador. Falta conferir o foco do D-pad, o visual em dp, as teclas do controle e a prévia de vídeo no buffering.
+- **Android TV validado em projetor, não em emulador/TV LG.** Rodou num projetor Android; falta validar num emulador e numa TV LG física.
 - **Troca de áudio:** funciona com hls.js e no Android. No HLS nativo do webOS e no MPEG-TS, só as legendas são trocáveis.
 - **EPG:** acima de 60 MB, o guia é ignorado quando o servidor não permite leitura em streaming. A conta usa o tamanho comprimido.
-- **Backend:** ainda é o mock. O portal de ativação (`https://brtvplay.app/ativar`) é um placeholder.
-- **Nenhuma validação em TV LG física.**
+- **Backend:** ainda é o mock. O portal de ativação (`https://brtvplay.app/ativar`) é um placeholder; por enquanto, listas são cadastradas no próprio aparelho.
+- **Adicionar lista** existe no Android; a mesma tela no webOS está planejada ([docs/superpowers/plans/2026-10-10-listas-do-usuario.md](docs/superpowers/plans/2026-10-10-listas-do-usuario.md), Task 2).
