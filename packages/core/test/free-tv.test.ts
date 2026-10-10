@@ -204,7 +204,6 @@ describe('loadFreeTvLibrary: validação', () => {
     const { library, fromCache, notice } = await loadFreeTvLibrary({
       storage,
       fetchFn: fetchFalso(corpo, opts),
-      force: true,
     });
     expect(fromCache).toBe(true);
     expect(notice).toContain('último catálogo salvo');
@@ -222,19 +221,22 @@ describe('loadFreeTvLibrary: validação', () => {
 });
 
 describe('loadFreeTvLibrary: cache e falhas', () => {
-  it('falha de rede com cache válido devolve o catálogo salvo com aviso', async () => {
-    const storage = new MemoryAdapter();
-    await storage.set(FREE_TV_CACHE_KEY, LISTA);
-    const { library, fromCache, notice } = await loadFreeTvLibrary({
-      storage,
-      fetchFn: fetchOffline,
-      force: true,
-    });
-    expect(fromCache).toBe(true);
-    expect(notice).toBe('Exibindo o último catálogo salvo; os vídeos precisam de internet.');
-    expect(library.live).toHaveLength(3);
-    expect(library.movies).toEqual([]);
-  });
+  it.each([undefined, false, true])(
+    'falha de rede com cache válido devolve o catálogo salvo com aviso (force=%s)',
+    async (force) => {
+      const storage = new MemoryAdapter();
+      await storage.set(FREE_TV_CACHE_KEY, LISTA);
+      const { library, fromCache, notice } = await loadFreeTvLibrary({
+        storage,
+        fetchFn: fetchOffline,
+        ...(force !== undefined ? { force } : {}),
+      });
+      expect(fromCache).toBe(true);
+      expect(notice).toBe('Exibindo o último catálogo salvo; os vídeos precisam de internet.');
+      expect(library.live).toHaveLength(3);
+      expect(library.movies).toEqual([]);
+    },
+  );
 
   it('falha de rede sem cache lança erro em pt-BR', async () => {
     await expect(
@@ -245,23 +247,31 @@ describe('loadFreeTvLibrary: cache e falhas', () => {
   it('cache corrompido não conta como cache válido', async () => {
     const storage = new MemoryAdapter();
     await storage.set(FREE_TV_CACHE_KEY, 'corrompido');
-    await expect(
-      loadFreeTvLibrary({ storage, fetchFn: fetchOffline, force: true }),
-    ).rejects.toThrow('Verifique a internet');
+    await expect(loadFreeTvLibrary({ storage, fetchFn: fetchOffline })).rejects.toThrow(
+      'Verifique a internet',
+    );
   });
 
-  it('sem force, um cache válido é usado sem baixar de novo', async () => {
-    const storage = new MemoryAdapter();
-    await storage.set(FREE_TV_CACHE_KEY, LISTA);
-    const fetchFn = fetchFalso(LISTA_NOVA);
-    const { library, fromCache, notice } = await loadFreeTvLibrary({ storage, fetchFn });
-    expect(fetchFn).not.toHaveBeenCalled();
-    expect(fromCache).toBe(true);
-    expect(notice).toContain('último catálogo salvo');
-    expect(library.live).toHaveLength(3);
-  });
+  it.each([undefined, false, true])(
+    'rede ok: baixa mesmo havendo cache salvo, não serve do cache e atualiza o cache (force=%s)',
+    async (force) => {
+      const storage = new MemoryAdapter();
+      await storage.set(FREE_TV_CACHE_KEY, LISTA);
+      const fetchFn = fetchFalso(LISTA_NOVA);
+      const { library, fromCache, notice } = await loadFreeTvLibrary({
+        storage,
+        fetchFn,
+        ...(force !== undefined ? { force } : {}),
+      });
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(fromCache).toBe(false);
+      expect(notice).toBeNull();
+      expect(library.live.map((c) => c.name)).toEqual(['Canal Sem Id']);
+      expect(await storage.get(FREE_TV_CACHE_KEY)).toBe(LISTA_NOVA);
+    },
+  );
 
-  it('sem force, um cache corrompido é ignorado e a lista é baixada', async () => {
+  it('cache corrompido é sobrescrito pelo download válido', async () => {
     const storage = new MemoryAdapter();
     await storage.set(FREE_TV_CACHE_KEY, 'corrompido');
     const fetchFn = fetchFalso();
@@ -269,18 +279,6 @@ describe('loadFreeTvLibrary: cache e falhas', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fromCache).toBe(false);
     expect(await storage.get(FREE_TV_CACHE_KEY)).toBe(LISTA);
-  });
-
-  it('force ignora o cache, rebaixa a fonte e atualiza o cache', async () => {
-    const storage = new MemoryAdapter();
-    await storage.set(FREE_TV_CACHE_KEY, LISTA);
-    const fetchFn = fetchFalso(LISTA_NOVA);
-    const { library, fromCache, notice } = await loadFreeTvLibrary({ storage, fetchFn, force: true });
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-    expect(fromCache).toBe(false);
-    expect(notice).toBeNull();
-    expect(library.live.map((c) => c.name)).toEqual(['Canal Sem Id']);
-    expect(await storage.get(FREE_TV_CACHE_KEY)).toBe(LISTA_NOVA);
   });
 });
 
@@ -311,7 +309,7 @@ describe('loadFreeTvLibrary: tempo limite', () => {
       new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(new Error('interrompido')));
       });
-    const pendente = loadFreeTvLibrary({ storage, fetchFn: fetchLento, force: true });
+    const pendente = loadFreeTvLibrary({ storage, fetchFn: fetchLento });
     await vi.advanceTimersByTimeAsync(FREE_TV_TIMEOUT_MS);
     expect((await pendente).fromCache).toBe(true);
   });

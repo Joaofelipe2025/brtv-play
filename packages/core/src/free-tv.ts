@@ -130,7 +130,10 @@ function toLibrary(channels: M3uChannel[]): Library {
 export interface LoadFreeTvOptions {
   storage: KeyValueAdapter;
   fetchFn?: PlaylistFetch;
-  /** "Recarregar lista": ignora o cache na leitura e baixa de novo (ainda cai para o cache se falhar). */
+  /**
+   * Aceito para o "Recarregar lista", mas sem efeito: seleção e recarregar seguem o mesmo fluxo
+   * (rede primeiro, cache só como socorro se a rede falhar).
+   */
   force?: boolean;
 }
 
@@ -142,30 +145,20 @@ export interface LoadFreeTvResult {
 }
 
 /**
- * Carrega o catálogo público de testes. Sem `force`, um cache válido é usado direto; caso contrário
- * baixa e salva o conteúdo válido. Se o download falhar (rede, tempo limite, lista inválida), cai para o
- * cache revalidado; sem cache válido, lança um `Error` com mensagem em pt-BR.
+ * Carrega o catálogo público de testes: sempre tenta a rede primeiro (com tempo limite) e, se o conteúdo
+ * baixado for válido, salva-o no cache. O cache é só socorro: se o download falhar (rede, tempo limite,
+ * lista inválida), devolve o último catálogo salvo revalidado, com aviso. Sem cache válido, lança um
+ * `Error` com mensagem em pt-BR.
  */
 export async function loadFreeTvLibrary(options: LoadFreeTvOptions): Promise<LoadFreeTvResult> {
-  const { storage, fetchFn = defaultFetch, force = false } = options;
-  const cacheResult = (cached: { channels: M3uChannel[] }): LoadFreeTvResult => ({
-    library: toLibrary(cached.channels),
-    fromCache: true,
-    notice: CACHE_NOTICE,
-  });
-
-  if (!force) {
-    const cached = await readCache(storage);
-    if (cached) return cacheResult(cached);
-  }
+  const { storage, fetchFn = defaultFetch } = options;
 
   let fresh: { content: string; channels: M3uChannel[] };
   try {
     fresh = await download(fetchFn);
   } catch {
-    // Sem `force` o cache já foi tentado acima (e não servia); só o recarregar ainda não o leu.
-    const cached = force ? await readCache(storage) : null;
-    if (cached) return cacheResult(cached);
+    const cached = await readCache(storage);
+    if (cached) return { library: toLibrary(cached.channels), fromCache: true, notice: CACHE_NOTICE };
     throw new Error(LOAD_ERROR);
   }
   try {
