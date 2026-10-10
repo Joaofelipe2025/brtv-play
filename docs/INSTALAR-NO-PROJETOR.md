@@ -17,6 +17,7 @@ Serve para projetores como o Magcubic, TV boxes e TVs com Android. O APK é gera
 
 Escolha o jeito mais fácil para o seu aparelho:
 
+- **Pela rede Wi-Fi (sem cabo e sem pendrive):** no computador, rode `pnpm android:serve`. Ele baixa o último APK do EAS e mostra um endereço como `http://192.168.0.5:8080`. No projetor, na mesma rede, abra esse endereço no app **Downloader** ou no navegador, e o APK baixa e abre o instalador. Se o Windows perguntar, permita o Node.js em redes privadas.
 - **Pendrive:** copie o `.apk` para um pendrive, conecte no projetor e abra pelo gerenciador de arquivos.
 - **App Downloader:** instale o "Downloader" no projetor e digite o link do build.
 - **ADB pelo Wi-Fi** (avançado): ative a depuração nas opções de desenvolvedor do projetor e rode `adb connect <ip>` e depois `adb install <arquivo>.apk`.
