@@ -11,5 +11,6 @@ export * from './playback';
 export * from './brand.generated';
 export * from './format';
 export * from './library';
+export * from './free-tv';
 export * from './parental';
 export * from './userPlaylists';
