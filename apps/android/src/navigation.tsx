@@ -8,6 +8,7 @@ export interface Preferences {
 export type Route =
   | { name: 'activation' }
   | { name: 'playlists' }
+  | { name: 'addPlaylist' }
   | { name: 'home' }
   | { name: 'live'; category?: string }
   | { name: 'movies'; category?: string }

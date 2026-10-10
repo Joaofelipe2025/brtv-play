@@ -1,9 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { useStore } from 'zustand';
-import { colors, type StreamFormat } from '@brtv/core';
+import { colors, type Playlist, type StreamFormat } from '@brtv/core';
 import { savePreferences, store } from '../platform';
 import { useApp } from '../navigation';
+import { availablePlaylists, useAvailablePlaylists } from '../playlists';
 import { FocusCard, Logo, Text, font, styles } from '../ui';
 import { TopBar } from '../components/TopBar';
 
@@ -34,12 +35,16 @@ function Pill({ label, active, onPress }: { label: string; active?: boolean; onP
 }
 
 export function Settings() {
-  const { session, update, go } = useApp();
+  const { session, update, go, reset } = useApp();
+  const { available, user } = useAvailablePlaylists();
   const blocked = useStore(store, (s) => s.blockedCategories);
   const hasPin = useStore(store, (s) => s.parentalPin !== null);
   const [pin, setPin] = useState('');
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [listMsg, setListMsg] = useState<string | null>(null);
+  // Ao remover uma lista o botão focado some; este contador devolve o foco ao "Adicionar lista" (nunca às abas).
+  const [removedCount, setRemovedCount] = useState(0);
 
   const groups = useMemo(() => {
     const set = new Set<string>();
@@ -64,6 +69,21 @@ export function Settings() {
     store.getState().setParentalPin(pin);
     setPinMsg('PIN salvo. Categorias bloqueadas pedirão este PIN.');
     setPin('');
+  };
+
+  const removeUserList = (target: Playlist) => {
+    store.getState().removeUserPlaylist(target.id);
+    if (session.playlist?.id === target.id) {
+      // Era a lista aberta: vai para a primeira que sobrar (a biblioteca recarrega sozinha) ou volta à ativação.
+      const [next] = availablePlaylists(session.status, user.filter((p) => p.id !== target.id));
+      update({ playlist: next ?? null, library: null, epg: new Map() });
+      if (!next) {
+        reset({ name: 'activation' });
+        return;
+      }
+    }
+    setListMsg('Lista removida.');
+    setRemovedCount((n) => n + 1);
   };
 
   const toggleBlock = (group: string) => {
@@ -132,6 +152,43 @@ export function Settings() {
               </FocusCard>
             </View>
             {notice && <Text style={{ ...muted, marginTop: 8 }}>{notice}</Text>}
+          </Section>
+
+          <Section title="Minhas listas">
+            <Text style={muted}>Lista atual: {session.playlist?.name ?? 'nenhuma'}</Text>
+            <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
+              <FocusCard
+                key={`add-${removedCount}`}
+                autoFocus={removedCount > 0}
+                onPress={() => go({ name: 'addPlaylist' })}
+              >
+                <Text style={{ color: colors.accent, fontSize: 28, fontFamily: font.semibold }}>Adicionar lista</Text>
+              </FocusCard>
+              {available.length > 1 && (
+                <FocusCard onPress={() => go({ name: 'playlists' })}>
+                  <Text style={{ color: colors.textPrimary, fontSize: 28, fontFamily: font.medium }}>Trocar de lista</Text>
+                </FocusCard>
+              )}
+            </View>
+            {user.map((p) => (
+              <View
+                key={p.id}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8 }}
+              >
+                <View style={{ flexShrink: 1 }}>
+                  <Text numberOfLines={1} style={{ color: colors.textPrimary, fontSize: 26, fontFamily: font.medium }}>
+                    {p.name}
+                  </Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: 24 }}>
+                    {p.kind === 'xtream' ? 'Conta Xtream Codes' : 'Lista M3U'}
+                  </Text>
+                </View>
+                <FocusCard onPress={() => removeUserList(p)}>
+                  <Text style={{ color: colors.textPrimary, fontSize: 28, fontFamily: font.medium }}>Remover</Text>
+                </FocusCard>
+              </View>
+            ))}
+            {listMsg && <Text style={{ ...muted, marginTop: 8 }}>{listMsg}</Text>}
           </Section>
 
           <FocusCard onPress={() => go({ name: 'about' })}>

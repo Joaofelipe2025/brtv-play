@@ -2,11 +2,12 @@ import { ScrollView, View } from 'react-native';
 import { Body, FocusCard, Logo, Title, styles } from '../ui';
 import { Clock } from '../components/TopBar';
 import { useApp } from '../navigation';
+import { useAvailablePlaylists } from '../playlists';
 
 /** Antes de escolher a lista não há abas: ainda não existe conteúdo para navegar. */
 export function Playlists() {
-  const { session, update, reset } = useApp();
-  const list = session.status?.playlists ?? [];
+  const { update, reset } = useApp();
+  const { available, user } = useAvailablePlaylists();
 
   return (
     <View style={styles.screen}>
@@ -16,7 +17,7 @@ export function Playlists() {
       </View>
       <Title>Qual lista você quer abrir?</Title>
       <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 24, marginTop: 24 }}>
-        {list.map((p, i) => (
+        {available.map((p, i) => (
           <FocusCard
             key={p.id}
             autoFocus={i === 0}
@@ -28,6 +29,7 @@ export function Playlists() {
           >
             <Title>{p.name}</Title>
             <Body muted>{p.kind === 'xtream' ? 'Conta Xtream Codes' : 'Lista M3U'}</Body>
+            {user.some((u) => u.id === p.id) && <Body muted>Adicionada neste aparelho</Body>}
           </FocusCard>
         ))}
       </ScrollView>

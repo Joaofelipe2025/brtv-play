@@ -17,6 +17,7 @@ import { ScaledCanvas } from './canvas';
 import { useAutoUpdate } from './updates';
 import { AppContext, type AppContextValue, type Route, type Session } from './navigation';
 import { Activation } from './screens/Activation';
+import { AddPlaylist } from './screens/AddPlaylist';
 import { Playlists } from './screens/Playlists';
 import { Home } from './screens/Home';
 import { Live } from './screens/Live';
@@ -117,6 +118,9 @@ export default function App() {
       break;
     case 'playlists':
       screen = <Playlists />;
+      break;
+    case 'addPlaylist':
+      screen = <AddPlaylist />;
       break;
     case 'home':
       screen = <Home />;

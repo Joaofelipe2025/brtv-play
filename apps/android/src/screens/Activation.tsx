@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
+import { useStore } from 'zustand';
 import { ACTIVATION_URL, colors, daysLeft } from '@brtv/core';
 import { Body, FocusCard, Logo, Text, Title, font, styles } from '../ui';
 import { Clock } from '../components/TopBar';
 import { useApp } from '../navigation';
+import { availablePlaylists } from '../playlists';
+import { store } from '../platform';
 import { backend } from '../backend';
 
 const POLL_MS = 10_000;
@@ -14,6 +17,8 @@ export function Activation() {
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const { device, status } = session;
+  // As listas do aparelho carregam do armazenamento depois da primeira tela: quando chegam, verifica de novo.
+  const userPlaylists = useStore(store, (s) => s.userPlaylists);
 
   const check = useCallback(async () => {
     if (!device) return;
@@ -22,11 +27,13 @@ export function Activation() {
       const s = await backend.getDeviceStatus(device.mac, device.key);
       update({ status: s });
       setError(null);
-      const [first] = s.playlists;
-      if (s.playlists.length === 1 && first) {
+      // Servidor + listas cadastradas neste aparelho (lidas agora, não de uma verificação anterior)
+      const available = availablePlaylists(s, store.getState().userPlaylists);
+      const [first] = available;
+      if (available.length === 1 && first) {
         update({ playlist: first });
         reset({ name: 'home' });
-      } else if (s.playlists.length > 1) {
+      } else if (available.length > 1) {
         reset({ name: 'playlists' });
       }
     } catch {
@@ -42,7 +49,7 @@ export function Activation() {
     void check();
     const id = setInterval(() => void check(), POLL_MS);
     return () => clearInterval(id);
-  }, [device, check]);
+  }, [device, check, userPlaylists]);
 
   const expired = status?.status === 'expired';
   const statusText = !status
