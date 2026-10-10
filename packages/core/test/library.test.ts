@@ -97,6 +97,79 @@ describe('loadLibrary', () => {
     const lib = await loadLibrary(xtreamPlaylist, 'ts', xtreamFetch());
     expect(lib.live[0]?.url.endsWith('/10.ts')).toBe(true);
   });
+
+  describe('M3U por link', () => {
+    const M3U_TEXT = [
+      '#EXTM3U',
+      '#EXTINF:-1 tvg-id="a.br" tvg-logo="http://exemplo.test/a.png" group-title="Notícias",Canal A',
+      'http://exemplo.test/live/a.m3u8',
+    ].join('\n');
+
+    function textFetch(calls: string[], body: string, status = 200): LibraryFetch {
+      return async (url) => {
+        calls.push(url);
+        return {
+          ok: status >= 200 && status < 300,
+          status,
+          json: async () => {
+            throw new Error('não deveria chamar json()');
+          },
+          text: async () => body,
+        };
+      };
+    }
+
+    it('baixa o texto do link e monta a biblioteca', async () => {
+      const calls: string[] = [];
+      const lib = await loadLibrary(
+        { id: 'u', name: 'Link', kind: 'm3u', url: 'http://exemplo.test/lista.m3u' },
+        'hls',
+        textFetch(calls, M3U_TEXT),
+      );
+      expect(calls).toEqual(['http://exemplo.test/lista.m3u']);
+      expect(lib.live).toHaveLength(1);
+      expect(lib.live[0]).toMatchObject({
+        name: 'Canal A',
+        group: 'Notícias',
+        url: 'http://exemplo.test/live/a.m3u8',
+      });
+      expect(lib.xtream).toBeNull();
+      expect(lib.epgUrl).toBeNull();
+    });
+
+    it('falha com a mensagem do status quando o download não é ok', async () => {
+      await expect(
+        loadLibrary(
+          { id: 'u', name: 'Link', kind: 'm3u', url: 'http://exemplo.test/lista.m3u' },
+          'hls',
+          textFetch([], '', 404),
+        ),
+      ).rejects.toThrow('Falha ao baixar a lista (HTTP 404)');
+    });
+
+    it('prefere o conteúdo embutido e não baixa o link', async () => {
+      const calls: string[] = [];
+      const lib = await loadLibrary(
+        {
+          id: 'u',
+          name: 'Ambos',
+          kind: 'm3u',
+          content: M3U_TEXT,
+          url: 'http://exemplo.test/lista.m3u',
+        },
+        'hls',
+        textFetch(calls, ''),
+      );
+      expect(calls).toEqual([]);
+      expect(lib.live).toHaveLength(1);
+    });
+
+    it('falha quando a lista não tem conteúdo nem link', async () => {
+      await expect(
+        loadLibrary({ id: 'u', name: 'Vazia', kind: 'm3u' }, 'hls', textFetch([], '')),
+      ).rejects.toThrow('A lista M3U não tem conteúdo nem link.');
+    });
+  });
 });
 
 describe('loadSeasons', () => {

@@ -12,7 +12,9 @@ export interface M3uPlaylist {
   name: string;
   kind: 'm3u';
   /** Conteúdo bruto do arquivo M3U/M3U8. */
-  content: string;
+  content?: string;
+  /** Link para baixar o arquivo M3U/M3U8. Usado quando não há `content`. Pelo menos um dos dois deve existir. */
+  url?: string;
 }
 
 export interface XtreamPlaylist {

@@ -12,3 +12,4 @@ export * from './brand.generated';
 export * from './format';
 export * from './library';
 export * from './parental';
+export * from './userPlaylists';

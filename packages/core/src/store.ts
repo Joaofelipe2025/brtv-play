@@ -1,4 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
+import type { Playlist } from './api';
 import type { KeyValueAdapter } from './storage';
 
 export interface HistoryEntry {
@@ -16,6 +17,8 @@ export interface AppState {
   /** PIN parental de 4 dígitos. Armazenamento local, não é barreira de segurança. */
   parentalPin: string | null;
   blockedCategories: string[];
+  /** Listas cadastradas pela pessoa neste aparelho (Xtream ou link M3U). */
+  userPlaylists: Playlist[];
 }
 
 export interface AppActions {
@@ -26,6 +29,9 @@ export interface AppActions {
   verifyPin(pin: string): boolean;
   setCategoryBlocked(category: string, blocked: boolean): void;
   isCategoryBlocked(category: string): boolean;
+  /** Adiciona a lista; se já existir uma com o mesmo id, substitui no mesmo lugar. */
+  addUserPlaylist(playlist: Playlist): void;
+  removeUserPlaylist(id: string): void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -40,7 +46,29 @@ export const initialState: AppState = {
   continueWatching: {},
   parentalPin: null,
   blockedCategories: [],
+  userPlaylists: [],
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Confere se um item lido do armazenamento tem a forma de uma `Playlist` utilizável. */
+function isStoredPlaylist(value: unknown): value is Playlist {
+  if (!isRecord(value)) return false;
+  if (typeof value['id'] !== 'string' || typeof value['name'] !== 'string') return false;
+  if (value['kind'] === 'xtream') {
+    return (
+      typeof value['server'] === 'string' &&
+      typeof value['username'] === 'string' &&
+      typeof value['password'] === 'string'
+    );
+  }
+  if (value['kind'] === 'm3u') {
+    return typeof value['content'] === 'string' || typeof value['url'] === 'string';
+  }
+  return false;
+}
 
 /**
  * Cria a store e persiste cada mudança pelo adapter.
@@ -92,12 +120,34 @@ export function createAppStore(adapter: KeyValueAdapter): StoreApi<AppStore> & {
     isCategoryBlocked(category) {
       return get().blockedCategories.includes(category);
     },
+
+    addUserPlaylist(playlist) {
+      const current = get().userPlaylists;
+      const exists = current.some((p) => p.id === playlist.id);
+      set({
+        userPlaylists: exists
+          ? current.map((p) => (p.id === playlist.id ? playlist : p))
+          : [...current, playlist],
+      });
+    },
+
+    removeUserPlaylist(id) {
+      set({ userPlaylists: get().userPlaylists.filter((p) => p.id !== id) });
+    },
   }));
 
   // Persiste após cada mudança de estado (ignora as funções)
   store.subscribe((state) => {
-    const { favorites, history, continueWatching, parentalPin, blockedCategories } = state;
-    const data: AppState = { favorites, history, continueWatching, parentalPin, blockedCategories };
+    const { favorites, history, continueWatching, parentalPin, blockedCategories, userPlaylists } =
+      state;
+    const data: AppState = {
+      favorites,
+      history,
+      continueWatching,
+      parentalPin,
+      blockedCategories,
+      userPlaylists,
+    };
     void adapter.set(STORE_STORAGE_KEY, JSON.stringify(data));
   });
 
@@ -117,6 +167,10 @@ export function createAppStore(adapter: KeyValueAdapter): StoreApi<AppStore> & {
           parentalPin: typeof parsed.parentalPin === 'string' ? parsed.parentalPin : null,
           blockedCategories: Array.isArray(parsed.blockedCategories)
             ? parsed.blockedCategories
+            : [],
+          // Descarta itens sem a forma de uma lista, para um registro ruim não derrubar o app.
+          userPlaylists: Array.isArray(parsed.userPlaylists)
+            ? (parsed.userPlaylists as unknown[]).filter(isStoredPlaylist)
             : [],
         });
       } catch {

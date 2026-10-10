@@ -88,14 +88,27 @@ export function cleanGroup(group: string): string {
   return group.replace(/^\s*(filmes?|movies?|vod|s[ée]ries|series|tv shows?)\s*[|:/-]\s*/i, '') || group;
 }
 
-/** Monta a biblioteca de uma playlist (M3U direto ou Xtream via API). */
+/** Baixa o texto de uma lista M3U por link. */
+async function downloadM3u(url: string, fetchFn: LibraryFetch): Promise<string> {
+  const response = await fetchFn(url);
+  if (!response.ok) throw new Error(`Falha ao baixar a lista (HTTP ${response.status})`);
+  return response.text();
+}
+
+/** Monta a biblioteca de uma playlist (M3U direto, M3U por link ou Xtream via API). */
 export async function loadLibrary(
   playlist: Playlist,
   format: StreamFormat,
   fetchFn: LibraryFetch = defaultFetch(),
 ): Promise<Library> {
   if (playlist.kind === 'm3u') {
-    const { live, movies, series } = classifyM3u(parseM3u(playlist.content));
+    // O conteúdo embutido tem prioridade; o link só é baixado quando não há conteúdo.
+    let text = playlist.content;
+    if (text === undefined) {
+      if (!playlist.url) throw new Error('A lista M3U não tem conteúdo nem link.');
+      text = await downloadM3u(playlist.url, fetchFn);
+    }
+    const { live, movies, series } = classifyM3u(parseM3u(text));
     return {
       live: live.map((c) => ({
         id: c.id,
