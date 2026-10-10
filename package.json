@@ -18,6 +18,7 @@
     "android:start": "pnpm --filter @brtv/android start",
     "android:apk": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile preview",
     "android:store": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile production",
+    "android:serve": "node scripts/serve-apk.mjs",
     "brand:assets": "node scripts/generate-brand-assets.mjs"
   },
   "engines": {

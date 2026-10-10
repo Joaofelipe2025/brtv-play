@@ -1,3 +1,6 @@
+# Layout de node_modules igual ao do npm: o Metro (Expo SDK 52) não resolve o layout isolado do pnpm
+nodeLinker: hoisted
+
 packages:
   - "packages/*"
   - "apps/*"
