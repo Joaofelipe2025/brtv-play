@@ -58,6 +58,6 @@ http://x.test/live/9.m3u8`);
     const r = lib(DEMO_M3U);
     expect(r.live.length).toBeGreaterThan(0);
     expect(r.movies.length).toBeGreaterThan(0);
-    expect(r.series.length).toBe(1);
+    expect(r.series.map((s) => s.name).sort()).toEqual(['Aventuras na Floresta', 'Laboratório Curioso', 'Série Demo']);
   });
 });

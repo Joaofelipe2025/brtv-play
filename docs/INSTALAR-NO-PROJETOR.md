@@ -36,3 +36,15 @@ Enquanto o backend real não existe, o app ativa sozinho no modo de teste e most
 
 - **O app não aparece depois de instalar:** procure em Configurações → Apps. Alguns launchers de projetor só mostram apps fixados.
 - **O build falhou na Expo:** abra o link do build e copie o log da etapa que falhou. Esse foi o primeiro build nativo do app, então ajustes ainda podem ser necessários.
+
+## Atualizações automáticas
+
+A partir do APK com atualização automática (EAS Update, canal `preview`), mudanças de código e de conteúdo chegam sem reinstalar:
+
+```bash
+pnpm android:update
+```
+
+O comando publica a versão atual do código. Na próxima vez que o app abrir no projetor, ele baixa a atualização e reinicia sozinho, em poucos segundos.
+
+Precisa de um **APK novo** (`pnpm android:apk` e reinstalar) quando a mudança é nativa: biblioteca nova com código nativo, permissão, ícone ou nome do app, ou quando a `version` do `app.json` muda. As atualizações só chegam a builds com a mesma `version`.

@@ -13,6 +13,8 @@ import { currentAndNext, loadEpg, loadLibrary, loadOrCreateDevice } from '@brtv/
 import { asyncAdapter, loadPreferences, store, streamingFetch } from './platform';
 import { Player } from './Player';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ScaledCanvas } from './canvas';
+import { useAutoUpdate } from './updates';
 import { AppContext, type AppContextValue, type Route, type Session } from './navigation';
 import { Activation } from './screens/Activation';
 import { Playlists } from './screens/Playlists';
@@ -24,6 +26,7 @@ import { About, Settings } from './screens/Settings';
 const INITIAL_ROUTE: Route = { name: 'activation' };
 
 export default function App() {
+  useAutoUpdate();
   const [fontsLoaded] = useFonts({
     Poppins_300Light,
     Poppins_400Regular,
@@ -171,14 +174,17 @@ export default function App() {
 
   return (
     <AppContext.Provider value={value}>
-      <StatusBar style="light" />
-      {/* Uma tela que quebra mostra uma saída em vez de tela preta; nova tela, novo boundary */}
-      <ErrorBoundary
-        key={`${stack.length}:${route.name}`}
-        onRecover={() => reset(session.playlist ? { name: 'home' } : INITIAL_ROUTE)}
-      >
-        {screen}
-      </ErrorBoundary>
+      <StatusBar style="light" hidden />
+      {/* Telas em 1920x1080 virtuais, reduzidas por igual ao tamanho real do aparelho */}
+      <ScaledCanvas>
+        {/* Uma tela que quebra mostra uma saída em vez de tela preta; nova tela, novo boundary */}
+        <ErrorBoundary
+          key={`${stack.length}:${route.name}`}
+          onRecover={() => reset(session.playlist ? { name: 'home' } : INITIAL_ROUTE)}
+        >
+          {screen}
+        </ErrorBoundary>
+      </ScaledCanvas>
     </AppContext.Provider>
   );
 }

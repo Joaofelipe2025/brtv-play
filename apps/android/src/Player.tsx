@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, View, useTVEventHandler } from 'react-native';
 import Video, {
   SelectedTrackType,
+  ViewType,
   type OnAudioTracksData,
   type OnLoadData,
   type OnPlaybackStateChangedData,
@@ -427,6 +428,8 @@ export function Player({
         <Video
           ref={videoRef}
           key={`${url}-${attempt}`}
+          // TextureView acompanha a escala da tela virtual (SurfaceView ficaria fora do lugar)
+          viewType={ViewType.TEXTURE}
           source={source}
           style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           resizeMode="contain"

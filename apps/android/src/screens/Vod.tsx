@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { Image, ScrollView, TextInput, View } from 'react-native';
+import { DESIGN_WIDTH } from '../canvas';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
 import {
@@ -108,7 +109,7 @@ function VodBrowser({
   routeName: 'movies' | 'series';
 }) {
   const { session, update, replace } = useApp();
-  const { width } = useWindowDimensions();
+  const width = DESIGN_WIDTH;
   const blocked = useStore(store, (s) => s.blockedCategories);
   const positions = useStore(store, (s) => s.continueWatching);
   const [query, setQuery] = useState('');

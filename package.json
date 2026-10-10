@@ -19,6 +19,7 @@
     "android:apk": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile preview",
     "android:store": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile production",
     "android:serve": "node scripts/serve-apk.mjs",
+    "android:update": "pnpm --filter @brtv/android exec npx eas-cli@latest update --channel preview --platform android --auto",
     "brand:assets": "node scripts/generate-brand-assets.mjs"
   },
   "engines": {

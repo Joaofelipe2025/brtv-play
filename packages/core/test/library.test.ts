@@ -57,9 +57,12 @@ describe('cleanGroup', () => {
 describe('loadLibrary', () => {
   it('monta a biblioteca a partir de M3U', async () => {
     const lib = await loadLibrary({ id: 'd', name: 'Demo', kind: 'm3u', content: DEMO_M3U }, 'hls');
-    expect(lib.live.length).toBe(3);
-    expect(lib.movies.length).toBe(3);
-    expect(lib.series.length).toBeGreaterThan(0);
+    expect(lib.live.length).toBeGreaterThanOrEqual(10);
+    expect(lib.movies.length).toBeGreaterThanOrEqual(10);
+    expect(lib.series.length).toBe(3);
+    // Capas temporárias em todos os filmes e séries da demonstração
+    expect(lib.movies.every((m) => m.poster?.startsWith('https://picsum.photos/seed/brtv-'))).toBe(true);
+    expect(lib.series.every((s) => s.cover?.startsWith('https://picsum.photos/seed/brtv-'))).toBe(true);
     expect(lib.movies.every((m) => m.id.startsWith('vod-'))).toBe(true);
     expect(lib.movies.map((m) => m.group)).toContain('Demonstração');
     expect(lib.xtream).toBeNull();

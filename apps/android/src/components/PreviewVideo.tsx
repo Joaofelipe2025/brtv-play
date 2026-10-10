@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import Video, { type ReactVideoSource } from 'react-native-video';
+import Video, { ViewType, type ReactVideoSource } from 'react-native-video';
 import { detectStreamKind } from '@brtv/core';
 
 /** Valor que só muda depois de `delay` ms sem novas alterações. */
@@ -34,6 +34,7 @@ export function PreviewVideo({ url, delay = 700 }: { url: string | null; delay?:
   if (!source || failedUrl === settled) return null;
   return (
     <Video
+      viewType={ViewType.TEXTURE}
       key={settled}
       source={source}
       muted
