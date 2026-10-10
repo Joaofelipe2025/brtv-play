@@ -62,15 +62,21 @@ export interface M3uLibrary {
 }
 
 const VOD_EXTENSION = /\.(mp4|mkv|avi|mov|m4v|webm)(\?|$)/i;
-const MOVIE_GROUP = /^\s*(filmes?|movies?|vod)\b/i;
-const SERIES_GROUP = /^\s*(s[ée]ries|series|tv shows?)\b/i;
+/**
+ * Grupo só conta como VOD quando há separador depois da palavra ("Filmes | Ação", "Movies: Action",
+ * "VOD - X"). Playlists públicas (iptv-org, Free-TV) têm canais ao vivo 24h em grupos chamados
+ * exatamente "Movies" ou "Series"; esses ficam ao vivo. Itens reais do Xtream seguem sendo
+ * reconhecidos pelo caminho /movie/ e /series/ ou pela extensão, mesmo num grupo "Filmes" sem separador.
+ */
+const MOVIE_GROUP = /^\s*(filmes?|movies?|vod)\s*[|:/-]/i;
+const SERIES_GROUP = /^\s*(s[ée]ries|series|tv shows?)\s*[|:/-]/i;
 /** "Nome S01 E02", "Nome S1E2", "Nome - S01E02 - Título" */
 const EPISODE_PATTERN = /^(.*?)[\s._-]*S(\d{1,2})\s*E(\d{1,3})\b(.*)$/i;
 
 /**
  * Separa uma lista M3U em ao vivo, filmes e séries, seguindo convenções comuns:
  * caminhos /movie/ e /series/ (M3U gerado por Xtream), extensões de arquivo de vídeo,
- * grupos "Filmes | ..." e "Séries | ..." e nomes com SxxExx.
+ * grupos com separador ("Filmes | ...", "Séries | ...") e nomes com SxxExx.
  * Itens de série sem SxxExx viram filmes, para não sumirem da lista.
  */
 export function classifyM3u(channels: M3uChannel[]): M3uLibrary {

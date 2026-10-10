@@ -54,6 +54,65 @@ http://x.test/live/9.m3u8`);
     expect(r.series).toHaveLength(0);
   });
 
+  it('grupo "Movies" sem separador e sem marcador de VOD continua ao vivo', () => {
+    // Playlists públicas (iptv-org, Free-TV) têm canais 24/7 ao vivo no grupo "Movies"
+    const r = lib(`#EXTINF:-1 group-title="Movies",Canal de Cinema 24h
+http://x.test/live/cinema.m3u8`);
+    expect(r.live).toHaveLength(1);
+    expect(r.movies).toHaveLength(0);
+  });
+
+  it('grupo "Series" sem separador e sem SxxExx continua ao vivo', () => {
+    const r = lib(`#EXTINF:-1 group-title="Series",Canal de Séries 24h
+http://x.test/live/series.m3u8`);
+    expect(r.live).toHaveLength(1);
+    expect(r.movies).toHaveLength(0);
+    expect(r.series).toHaveLength(0);
+  });
+
+  it('grupos "Filmes" e "Séries" sem separador também continuam ao vivo', () => {
+    const r = lib(`#EXTINF:-1 group-title="Filmes",A
+http://x.test/live/a.m3u8
+#EXTINF:-1 group-title="Séries",B
+http://x.test/live/b.m3u8`);
+    expect(r.live.map((c) => c.name)).toEqual(['A', 'B']);
+    expect(r.movies).toHaveLength(0);
+  });
+
+  it('grupo com separador ("Filmes | Ação", "Movies: Action", "VOD - X") continua sendo filme', () => {
+    const r = lib(`#EXTINF:-1 group-title="Filmes | Ação",A
+http://x.test/a.m3u8
+#EXTINF:-1 group-title="Movies: Action",B
+http://x.test/b.m3u8
+#EXTINF:-1 group-title="VOD - X",C
+http://x.test/c.m3u8
+#EXTINF:-1 group-title="Movies / Drama",D
+http://x.test/d.m3u8`);
+    expect(r.movies.map((m) => m.name)).toEqual(['A', 'B', 'C', 'D']);
+    expect(r.live).toHaveLength(0);
+  });
+
+  it('grupo "Séries | Drama" com separador vira série quando o nome tem SxxExx', () => {
+    const r = lib(`#EXTINF:-1 group-title="Séries | Drama",Minha Série S01E01
+http://x.test/live/1.m3u8`);
+    expect(r.series).toHaveLength(1);
+    expect(r.live).toHaveLength(0);
+  });
+
+  it('item Xtream em grupo "Filmes" sem separador ainda é filme pelo caminho /movie/', () => {
+    const r = lib(`#EXTINF:-1 group-title="Filmes",A
+http://x.test/movie/u/p/1.mp4`);
+    expect(r.movies).toHaveLength(1);
+    expect(r.live).toHaveLength(0);
+  });
+
+  it('episódio Xtream em grupo "Séries" sem separador ainda é série pelo caminho /series/', () => {
+    const r = lib(`#EXTINF:-1 group-title="Séries",Minha Série S01E01
+http://x.test/series/u/p/1.mkv`);
+    expect(r.series).toHaveLength(1);
+    expect(r.live).toHaveLength(0);
+  });
+
   it('a playlist de demonstração tem ao vivo, filmes e séries', () => {
     const r = lib(DEMO_M3U);
     expect(r.live.length).toBeGreaterThan(0);
