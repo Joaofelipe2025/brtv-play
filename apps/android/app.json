@@ -24,6 +24,12 @@
     "plugins": [
       "./plugins/withLeanback.js"
     ],
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "owner": "brtv-play",
+    "extra": {
+      "eas": {
+        "projectId": "cf820c71-a13b-4184-8a70-661eea62b83a"
+      }
+    }
   }
 }
