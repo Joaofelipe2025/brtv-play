@@ -1,10 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, TextInput, View } from 'react-native';
 import { useStore } from 'zustand';
-import { colors, type Playlist, type StreamFormat } from '@brtv/core';
+import { FREE_TV_PLAYLIST, FREE_TV_PLAYLIST_ID, colors, type Playlist, type StreamFormat } from '@brtv/core';
 import { savePreferences, store } from '../platform';
 import { useApp } from '../navigation';
-import { availablePlaylists, useAvailablePlaylists } from '../playlists';
+import { FREE_TV_LABEL, availablePlaylists, useAvailablePlaylists } from '../playlists';
 import { FocusCard, Logo, Text, font, styles } from '../ui';
 import { TopBar } from '../components/TopBar';
 
@@ -132,6 +132,7 @@ export function Settings() {
 
           <Section title="Lista">
             <Text style={muted}>{session.playlist?.name ?? 'Nenhuma lista carregada'}</Text>
+            {session.playlist?.id === FREE_TV_PLAYLIST_ID && <Text style={muted}>{FREE_TV_LABEL}</Text>}
             <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
               <FocusCard
                 autoFocus
@@ -188,6 +189,13 @@ export function Settings() {
                 </FocusCard>
               </View>
             ))}
+            {/* Sempre oferecido, não pode ser removido: só mostra de onde vem */}
+            <View style={{ marginTop: 8 }}>
+              <Text numberOfLines={1} style={{ color: colors.textPrimary, fontSize: 26, fontFamily: font.medium }}>
+                {FREE_TV_PLAYLIST.name}
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 24 }}>{FREE_TV_LABEL}</Text>
+            </View>
             {listMsg && <Text style={{ ...muted, marginTop: 8 }}>{listMsg}</Text>}
           </Section>
 

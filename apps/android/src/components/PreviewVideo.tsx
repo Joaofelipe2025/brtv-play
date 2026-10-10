@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Video, { ViewType, type ReactVideoSource } from 'react-native-video';
-import { detectStreamKind } from '@brtv/core';
+import { detectStreamKind, freeTvPlaybackIssue } from '@brtv/core';
 
 /** Valor que só muda depois de `delay` ms sem novas alterações. */
 export function useDebounced<T>(value: T, delay: number): T {
@@ -15,7 +15,8 @@ export function useDebounced<T>(value: T, delay: number): T {
 /**
  * Prévia silenciosa de um stream. Só abre depois que a URL fica estável por `delay` ms,
  * para não criar uma conexão a cada item percorrido no controle. Fica invisível até tocar
- * e, em caso de erro, continua invisível (a arte de fundo aparece).
+ * e, em caso de erro, continua invisível (a arte de fundo aparece). Páginas de vídeo (YouTube etc.)
+ * não são mídia para o player nativo: nelas a prévia nem abre, e a arte de fundo fica.
  */
 export function PreviewVideo({ url, delay = 700 }: { url: string | null; delay?: number }) {
   const settled = useDebounced(url, delay);
@@ -27,7 +28,7 @@ export function PreviewVideo({ url, delay = 700 }: { url: string | null; delay?:
   }, [settled]);
 
   const source = useMemo<ReactVideoSource | null>(() => {
-    if (!settled) return null;
+    if (!settled || freeTvPlaybackIssue(settled) !== null) return null;
     return { uri: settled, ...(detectStreamKind(settled) === 'hls' ? { type: 'm3u8' as const } : {}) };
   }, [settled]);
 

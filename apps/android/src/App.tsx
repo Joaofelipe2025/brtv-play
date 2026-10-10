@@ -9,8 +9,15 @@ import {
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
-import { currentAndNext, loadEpg, loadLibrary, loadOrCreateDevice } from '@brtv/core';
-import { asyncAdapter, loadPreferences, store, streamingFetch } from './platform';
+import {
+  FREE_TV_PLAYLIST_ID,
+  currentAndNext,
+  loadEpg,
+  loadFreeTvLibrary,
+  loadLibrary,
+  loadOrCreateDevice,
+} from '@brtv/core';
+import { asyncAdapter, loadPreferences, playlistFetch, store, streamingFetch } from './platform';
 import { Player } from './Player';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ScaledCanvas } from './canvas';
@@ -45,6 +52,7 @@ export default function App() {
     playlist: null,
     library: null,
     libraryError: null,
+    libraryNotice: null,
     loading: false,
     epg: new Map(),
     prefs: { streamFormat: 'hls' },
@@ -85,21 +93,39 @@ export default function App() {
 
   // Carrega biblioteca e EPG quando a playlist, o formato ou o pedido de recarga mudam
   const playlistId = session.playlist?.id;
+  const seenReloadToken = useRef(session.reloadToken);
   useEffect(() => {
     const playlist = session.playlist;
     if (!playlist) return;
+    // "Recarregar lista" muda o reloadToken: é um pedido para baixar a fonte de novo, não só abrir a lista
+    const reload = session.reloadToken !== seenReloadToken.current;
+    seenReloadToken.current = session.reloadToken;
+    const freeTv = playlist.id === FREE_TV_PLAYLIST_ID;
     let cancelled = false;
-    update({ loading: true, libraryError: null });
+    update({ loading: true, libraryError: null, libraryNotice: null });
     void (async () => {
       try {
+        if (freeTv) {
+          // Catálogo público: lista separada, só TV ao Vivo e sem EPG (não passa por loadLibrary/loadEpg)
+          const { library, notice } = await loadFreeTvLibrary({
+            storage: asyncAdapter,
+            fetchFn: playlistFetch,
+            force: reload,
+          });
+          if (cancelled) return;
+          update({ library, libraryNotice: notice, libraryError: null, loading: false, epg: new Map() });
+          return;
+        }
         const library = await loadLibrary(playlist, session.prefs.streamFormat);
         if (cancelled) return;
         update({ library, libraryError: null, loading: false });
         const epg = await loadEpg(library.epgUrl, streamingFetch);
         if (!cancelled) update({ epg });
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          update({ library: null, libraryError: LIBRARY_ERROR, loading: false, epg: new Map() });
+          // O catálogo público já falha com mensagem própria em pt-BR (internet, tamanho, lista inválida)
+          const message = freeTv && error instanceof Error ? error.message : LIBRARY_ERROR;
+          update({ library: null, libraryError: message, loading: false, epg: new Map() });
         }
       }
     })();

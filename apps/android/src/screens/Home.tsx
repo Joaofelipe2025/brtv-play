@@ -190,6 +190,11 @@ export function Home() {
         <Text numberOfLines={2} style={{ color: colors.textSecondary, fontSize: 26, marginTop: 8 }}>
           {subtitle}
         </Text>
+        {session.library && session.libraryNotice !== null && (
+          <Text numberOfLines={2} style={{ color: colors.textSecondary, fontSize: 24, marginTop: 8 }}>
+            {session.libraryNotice}
+          </Text>
+        )}
         {loadError !== null && (
           <View style={{ flexDirection: 'row', marginTop: 28 }}>
             <FocusCard autoFocus onPress={() => go({ name: 'settings' })}>

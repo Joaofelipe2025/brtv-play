@@ -22,6 +22,7 @@ import {
   detectStreamKind,
   digitOf,
   formatClock,
+  freeTvPlaybackIssue,
   mapAndroidKey,
   type RemoteAction,
 } from '@brtv/core';
@@ -89,7 +90,11 @@ export function Player({
   const [stall] = useState(createStallDetector);
   const [channelInput] = useState(createChannelNumberInput);
 
-  const [status, setStatus] = useState<Status>('loading');
+  const [playbackStatus, setStatus] = useState<Status>('loading');
+  // Página de vídeo externa (YouTube etc.): não é mídia para este player. Nem tenta tocar nem reconectar;
+  // mostra o aviso no mesmo estado de erro, sem gastar tentativas do reconector.
+  const issue = useMemo(() => freeTvPlaybackIssue(url), [url]);
+  const status: Status = issue !== null ? 'error' : playbackStatus;
   const [attempt, setAttempt] = useState(0);
   const [retryNo, setRetryNo] = useState(0);
   // O vídeo começa tocando; só o usuário altera isto, e o rótulo deriva dele
@@ -164,10 +169,11 @@ export function Player({
     [],
   );
 
-  // Histórico
+  // Histórico (o que não chegou a tocar não entra)
   useEffect(() => {
+    if (issue !== null) return;
     store.getState().addHistory({ id: id ?? url, type: isLive ? 'live' : 'vod', title });
-  }, [id, isLive, url, title]);
+  }, [id, isLive, url, title, issue]);
 
   // VOD: salva a posição a cada 5 s tocando e ao sair ou trocar de conteúdo
   useEffect(() => {
@@ -462,12 +468,17 @@ export function Player({
       {status === 'error' && (
         <View style={[styles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
           <Title>Não foi possível reproduzir</Title>
-          <Body muted>
-            O sinal não respondeu depois de {RECONNECT.maxAttempts} tentativas. Confira a conexão ou escolha outro{' '}
-            {isLive ? 'canal' : 'título'}.
-          </Body>
-          <FocusCard autoFocus onPress={retry} style={{ marginTop: 24 }}>
-            <Body>Tentar de novo</Body>
+          {issue !== null ? (
+            <Body muted>{issue}</Body>
+          ) : (
+            <Body muted>
+              O sinal não respondeu depois de {RECONNECT.maxAttempts} tentativas. Confira a conexão ou escolha outro{' '}
+              {isLive ? 'canal' : 'título'}.
+            </Body>
+          )}
+          {/* Tentar de novo não resolve uma página de vídeo: ali só se volta (CH+/CH- ainda trocam de canal) */}
+          <FocusCard autoFocus onPress={issue !== null ? onExit : retry} style={{ marginTop: 24 }}>
+            <Body>{issue !== null ? 'Voltar' : 'Tentar de novo'}</Body>
           </FocusCard>
         </View>
       )}

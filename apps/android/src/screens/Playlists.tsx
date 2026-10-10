@@ -1,8 +1,9 @@
 import { ScrollView, View } from 'react-native';
+import { FREE_TV_PLAYLIST_ID } from '@brtv/core';
 import { Body, FocusCard, Logo, Title, styles } from '../ui';
 import { Clock } from '../components/TopBar';
 import { useApp } from '../navigation';
-import { useAvailablePlaylists } from '../playlists';
+import { FREE_TV_LABEL, useAvailablePlaylists } from '../playlists';
 
 /** Antes de escolher a lista não há abas: ainda não existe conteúdo para navegar. */
 export function Playlists() {
@@ -30,6 +31,7 @@ export function Playlists() {
             <Title>{p.name}</Title>
             <Body muted>{p.kind === 'xtream' ? 'Conta Xtream Codes' : 'Lista M3U'}</Body>
             {user.some((u) => u.id === p.id) && <Body muted>Adicionada neste aparelho</Body>}
+            {p.id === FREE_TV_PLAYLIST_ID && <Body muted>{FREE_TV_LABEL}</Body>}
           </FocusCard>
         ))}
       </ScrollView>

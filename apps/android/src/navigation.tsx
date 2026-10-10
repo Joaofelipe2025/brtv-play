@@ -35,6 +35,8 @@ export interface Session {
   library: Library | null;
   /** Mensagem (pt-BR) quando a lista atual não pôde ser carregada; null se carregou ou ainda não tentou. */
   libraryError: string | null;
+  /** Aviso (pt-BR) sobre a lista aberta, ex.: catálogo público servido do cache; null se não há. */
+  libraryNotice: string | null;
   /** true enquanto a biblioteca carrega (mostra estado de carregamento nas telas) */
   loading: boolean;
   epg: EpgIndex;

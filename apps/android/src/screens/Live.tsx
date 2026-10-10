@@ -152,6 +152,11 @@ export function Live({ category }: { category?: string }) {
   return (
     <View style={styles.screen}>
       <TopBar active={tab} />
+      {session.libraryNotice !== null && (
+        <Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 24, marginBottom: 12 }}>
+          {session.libraryNotice}
+        </Text>
+      )}
       <View style={{ flex: 1, flexDirection: 'row', gap: 24 }}>
         {/* Categorias */}
         <View style={{ flex: 1.1 }}>

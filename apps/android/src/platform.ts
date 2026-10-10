@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetch as expoFetch } from 'expo/fetch';
-import type { KeyValueAdapter, LibraryFetch } from '@brtv/core';
+import type { KeyValueAdapter, LibraryFetch, PlaylistFetch } from '@brtv/core';
 import { createAppStore } from '@brtv/core';
 import type { Preferences } from './navigation';
 
@@ -29,7 +29,16 @@ export const streamingFetch: LibraryFetch = async (url) => {
   };
 };
 
-const PREFS_KEY = 'brtv.prefs.v1';
+/**
+ * Fetch do catálogo público de testes. Repassa o `signal`: sem isso o tempo limite do core
+ * não interromperia o download de fato (o `streamingFetch` acima não recebe `signal`).
+ */
+export const playlistFetch: PlaylistFetch = async (url, init) => {
+  const response = await expoFetch(url, { signal: init.signal });
+  return { ok: response.ok, headers: response.headers, text: () => response.text() };
+};
+
+const PREFS_KEY ='brtv.prefs.v1';
 const defaultPrefs: Preferences = { streamFormat: 'hls' };
 
 export async function loadPreferences(): Promise<Preferences> {
