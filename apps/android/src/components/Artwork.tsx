@@ -26,7 +26,7 @@ export function initials(name: string, max: number): string {
     .join('');
 }
 
-/** Logo de canal 72×72: imagem da lista sobre `surfaceElevated`; sem logo ou com erro, iniciais. */
+/** Logo de canal (72×72 por padrão): imagem da lista sobre `surfaceElevated`; sem logo ou com erro, iniciais. */
 export function ChannelLogo({ src, name, size = 72 }: { src?: string | undefined; name: string; size?: number }) {
   const [failed, setFailed] = useState<string | null>(null);
   const showImage = Boolean(src) && failed !== src;
@@ -50,7 +50,7 @@ export function ChannelLogo({ src, name, size = 72 }: { src?: string | undefined
           onError={() => setFailed(src ?? null)}
         />
       ) : (
-        <Text style={{ color: tintFor(name), fontSize: 28, fontFamily: font.bold }}>{initials(name, 2)}</Text>
+        <Text style={{ color: tintFor(name), fontSize: Math.round(size * 0.39), fontFamily: font.bold }}>{initials(name, 2)}</Text>
       )}
     </View>
   );
