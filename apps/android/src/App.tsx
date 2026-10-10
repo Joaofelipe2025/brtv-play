@@ -15,7 +15,8 @@ import Video, { type OnVideoErrorData } from 'react-native-video';
 import { useStore } from 'zustand';
 import {
   ACTIVATION_URL,
-  MockBackendService,
+  freeTvPlaybackIssue,
+  parseFreeTvChannels,
   currentAndNext,
   daysLeft,
   loadOrCreateDevice,
@@ -28,6 +29,7 @@ import {
   type Playlist,
 } from '@brtv/core';
 import { asyncAdapter, store } from './platform';
+import { backend } from './backend';
 import { Body, FocusCard, Logo, Text, Title, styles } from './ui';
 
 type Screen =
@@ -38,8 +40,6 @@ type Screen =
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const POLL_MS = 10_000;
-/** Ponto único de troca para o backend real (ver README). */
-const backend = new MockBackendService();
 /** EPG ainda não carregado no Android nesta versão. */
 const NO_EPG: EpgIndex = new Map();
 
@@ -56,6 +56,8 @@ export default function App() {
   const [status, setStatus] = useState<DeviceStatus | null>(null);
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [channels, setChannels] = useState<M3uChannel[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void loadOrCreateDevice(asyncAdapter).then(setDevice);
@@ -81,36 +83,48 @@ export default function App() {
   // Ativação: polling a cada 10s até existir playlist
   useEffect(() => {
     if (!device || playlist) return;
+    let cancelled = false;
+    let checking = false;
     const check = async () => {
+      if (checking) return;
+      checking = true;
       try {
         const s = await backend.getDeviceStatus(device.mac, device.key);
+        if (cancelled) return;
+        setLoadError(null);
+        setCatalogNotice(backend.notice);
         setStatus(s);
         const first = s.playlists[0];
         if (first) setPlaylist(first);
-      } catch {
-        // mantém a ativação e tenta de novo no próximo ciclo
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : 'Falha ao carregar canais. Tentaremos novamente.');
+      } finally {
+        checking = false;
       }
     };
     void check();
     const id = setInterval(() => void check(), POLL_MS);
-    return () => clearInterval(id);
+    return () => { cancelled = true; clearInterval(id); };
   }, [device, playlist]);
 
   useEffect(() => {
-    if (playlist?.kind === 'm3u') setChannels(parseM3u(playlist.content));
+    if (playlist?.kind === 'm3u') {
+      setChannels(playlist.id === 'free-tv' ? parseFreeTvChannels(playlist.content) : parseM3u(playlist.content));
+    }
   }, [playlist]);
 
   // Espera as fontes para não piscar a família do sistema
   if (!fontsLoaded) return null;
 
   if (!playlist) {
-    return <ActivationView device={device} status={status} />;
+    return <ActivationView device={device} status={status} error={loadError} />;
   }
 
   if (screen.name === 'home') {
     return (
       <HomeView
         playlistName={playlist.name}
+        notice={catalogNotice}
         onLive={() => setScreen({ name: 'live' })}
         onSettings={() => setScreen({ name: 'settings' })}
       />
@@ -124,6 +138,8 @@ export default function App() {
         onReload={() => {
           // Volta à ativação: ela consulta o servidor de novo e recarrega a playlist
           setPlaylist(null);
+          setChannels([]);
+          setLoadError(null);
           setScreen({ name: 'home' });
         }}
       />
@@ -153,7 +169,7 @@ export default function App() {
   );
 }
 
-function ActivationView({ device, status }: { device: DeviceIdentity | null; status: DeviceStatus | null }) {
+function ActivationView({ device, status, error }: { device: DeviceIdentity | null; status: DeviceStatus | null; error: string | null }) {
   const statusText = !status
     ? 'Verificando…'
     : status.status === 'trial'
@@ -180,6 +196,7 @@ function ActivationView({ device, status }: { device: DeviceIdentity | null; sta
           Portal: <Text style={styles.brand}>{ACTIVATION_URL}</Text>
         </Body>
         <Body>Status: {statusText}</Body>
+        {status?.status !== 'expired' && <Body>{error ?? 'Carregando canais Free-TV…'}</Body>}
       </View>
       <View style={{ alignItems: 'center' }}>
         {device && (
@@ -195,10 +212,12 @@ function ActivationView({ device, status }: { device: DeviceIdentity | null; sta
 
 function HomeView({
   playlistName,
+  notice,
   onLive,
   onSettings,
 }: {
   playlistName: string;
+  notice: string | null;
   onLive(): void;
   onSettings(): void;
 }) {
@@ -210,6 +229,7 @@ function HomeView({
         <Logo height={60} />
         <Body muted>{playlistName}</Body>
       </View>
+      {notice && <Body>{notice}</Body>}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 24, marginTop: 48 }}>
         <FocusCard autoFocus onPress={onLive} style={tile}>
           <Title>TV ao Vivo</Title>
@@ -296,6 +316,7 @@ function PlayerView({
   const [showInfo, setShowInfo] = useState(true);
   const retries = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const playbackIssue = freeTvPlaybackIssue(channel.url);
 
   // Reinicia contadores quando o canal muda
   useEffect(() => {
@@ -344,7 +365,7 @@ function PlayerView({
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      {!failed && (
+      {!failed && !playbackIssue && (
         <Video
           key={`${channel.id}-${attempt}`}
           source={{ uri: channel.url }}
@@ -359,10 +380,10 @@ function PlayerView({
           }}
         />
       )}
-      {failed && (
+      {(failed || playbackIssue) && (
         <View style={[styles.screen, { justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)' }]}>
           <Title>Não foi possível reproduzir</Title>
-          <Body muted>Verifique a conexão e tente outro canal.</Body>
+          <Body muted>{playbackIssue ?? 'Verifique a conexão e tente outro canal. A transmissão pode estar indisponível ou restrita à região.'}</Body>
         </View>
       )}
       {showInfo && (
