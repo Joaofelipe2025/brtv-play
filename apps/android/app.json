@@ -22,7 +22,15 @@
       }
     },
     "plugins": [
-      "./plugins/withLeanback.js"
+      "./plugins/withLeanback.js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "icon": "./assets/icon.png",
     "owner": "brtv-play",

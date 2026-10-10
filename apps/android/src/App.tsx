@@ -26,6 +26,9 @@ import { About, Settings } from './screens/Settings';
 
 const INITIAL_ROUTE: Route = { name: 'activation' };
 
+/** Mostrada na Início quando a lista (Xtream ou M3U) do aparelho não carrega. */
+const LIBRARY_ERROR = 'Não foi possível carregar esta lista. Confira os dados e a conexão.';
+
 export default function App() {
   useAutoUpdate();
   const [fontsLoaded] = useFonts({
@@ -41,6 +44,7 @@ export default function App() {
     status: null,
     playlist: null,
     library: null,
+    libraryError: null,
     loading: false,
     epg: new Map(),
     prefs: { streamFormat: 'hls' },
@@ -85,16 +89,18 @@ export default function App() {
     const playlist = session.playlist;
     if (!playlist) return;
     let cancelled = false;
-    update({ loading: true });
+    update({ loading: true, libraryError: null });
     void (async () => {
       try {
         const library = await loadLibrary(playlist, session.prefs.streamFormat);
         if (cancelled) return;
-        update({ library, loading: false });
+        update({ library, libraryError: null, loading: false });
         const epg = await loadEpg(library.epgUrl, streamingFetch);
         if (!cancelled) update({ epg });
       } catch {
-        if (!cancelled) update({ library: null, loading: false, epg: new Map() });
+        if (!cancelled) {
+          update({ library: null, libraryError: LIBRARY_ERROR, loading: false, epg: new Map() });
+        }
       }
     })();
     return () => {

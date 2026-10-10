@@ -145,9 +145,13 @@ export function Home() {
     go({ name: 'player', url: channel.url, title: channel.name, isLive: true, channels: live, index: live.indexOf(channel) });
 
   const title = heroEpg?.current?.title ?? hero?.name ?? 'Sua TV, do seu jeito';
+  // Lista do aparelho (Xtream/M3U) que falhou ao carregar: explica em vez de parecer lista vazia
+  const loadError = !session.library && !session.loading ? session.libraryError : null;
   const subtitle =
     heroEpg?.current?.description ??
-    (hero ? `Ao vivo agora em ${hero.group}.` : session.loading ? 'Carregando sua lista…' : 'Nenhum canal nesta lista ainda.');
+    (hero
+      ? `Ao vivo agora em ${hero.group}.`
+      : (loadError ?? (session.loading ? 'Carregando sua lista…' : 'Nenhum canal nesta lista ainda.')));
   const meta = hero
     ? `${hero.group}${
         heroEpg?.current
@@ -186,6 +190,13 @@ export function Home() {
         <Text numberOfLines={2} style={{ color: colors.textSecondary, fontSize: 26, marginTop: 8 }}>
           {subtitle}
         </Text>
+        {loadError !== null && (
+          <View style={{ flexDirection: 'row', marginTop: 28 }}>
+            <FocusCard autoFocus onPress={() => go({ name: 'settings' })}>
+              <Text style={{ color: colors.accent, fontSize: 30, fontFamily: font.semibold }}>Voltar às configurações</Text>
+            </FocusCard>
+          </View>
+        )}
         {hero && (
           <>
             <View style={{ flexDirection: 'row', gap: 24, marginTop: 28 }}>

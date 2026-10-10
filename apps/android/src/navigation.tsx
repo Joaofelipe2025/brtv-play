@@ -33,6 +33,8 @@ export interface Session {
   status: DeviceStatus | null;
   playlist: Playlist | null;
   library: Library | null;
+  /** Mensagem (pt-BR) quando a lista atual não pôde ser carregada; null se carregou ou ainda não tentou. */
+  libraryError: string | null;
   /** true enquanto a biblioteca carrega (mostra estado de carregamento nas telas) */
   loading: boolean;
   epg: EpgIndex;
