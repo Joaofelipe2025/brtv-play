@@ -1,0 +1,16 @@
+{
+  "entries": 316354,
+  "invalid": 0,
+  "duplicates": 0,
+  "ambiguousSeriesPosters": 0,
+  "examples": [],
+  "movies": 30203,
+  "series": 8444,
+  "episodes": 286151,
+  "version": "v2-5e5d18ab39f446a9",
+  "fileCount": 61524,
+  "totalBytes": 92876251,
+  "maxPageBytes": 21945,
+  "firstPageBytes": 5604,
+  "manifestBytes": 4476
+}
