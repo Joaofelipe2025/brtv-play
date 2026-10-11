@@ -2,12 +2,12 @@
   "name": "brtv-play",
   "version": "0.1.0",
   "private": true,
-  "description": "BRTV PLAY — reprodutor de IPTV para Android TV e LG webOS (monorepo)",
+  "description": "BRTV PLAY \u2014 reprodutor de IPTV para Android TV e LG webOS (monorepo)",
   "scripts": {
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @brtv/core test",
+    "test": "pnpm --filter @brtv/core test && node --test scripts/build-vod-catalog.test.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm webos:build",
     "webos:dev": "pnpm --filter @brtv/webos dev",
     "webos:build": "pnpm --filter @brtv/webos build",
@@ -20,7 +20,8 @@
     "android:store": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile production",
     "android:serve": "node scripts/serve-apk.mjs",
     "android:update": "pnpm --filter @brtv/android exec npx eas-cli@latest update --channel preview --platform android --auto",
-    "brand:assets": "node scripts/generate-brand-assets.mjs"
+    "brand:assets": "node scripts/generate-brand-assets.mjs",
+    "catalog:build": "node scripts/build-vod-catalog.mjs"
   },
   "engines": {
     "node": ">=20"

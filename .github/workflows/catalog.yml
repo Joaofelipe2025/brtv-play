@@ -1,0 +1,61 @@
+name: Publicar catálogo e atualização Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/paged-vod-catalog]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-vod-catalog
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Verificar código e preparador
+        run: pnpm check
+      - name: Preparar catálogo
+        run: pnpm catalog:build
+      - name: Publicar arquivos estáticos de forma atômica
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin refs/heads/catalog-data > /dev/null; then
+            git fetch origin catalog-data
+            git worktree add --detach catalog-publish FETCH_HEAD
+          else
+            git worktree add --detach catalog-publish HEAD
+            git -C catalog-publish switch --orphan catalog-data
+          fi
+          cp -a catalog-output/. catalog-publish/
+          git -C catalog-publish add .
+          if ! git -C catalog-publish diff --cached --quiet; then
+            git -C catalog-publish commit --quiet -m "Atualiza catálogo paginado"
+            git -C catalog-publish push origin HEAD:catalog-data
+          fi
+      - name: Publicar atualização no canal preview
+        if: env.EXPO_TOKEN != ''
+        run: pnpm --filter @brtv/android exec npx eas-cli@latest update --channel preview --platform android --non-interactive --message "Catálogo de filmes e séries sob demanda"
+      - name: Informar acesso necessário ao EAS
+        if: env.EXPO_TOKEN == ''
+        run: echo "::notice::Catálogo publicado. EXPO_TOKEN ausente; a atualização EAS deve ser publicada pela sessão Expo autorizada do projeto."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-build-report
+          path: catalog-output/build-report.json

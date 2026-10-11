@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { colors, formatHour } from '@brtv/core';
+import { PAGED_CATALOG_ID, colors, formatHour } from '@brtv/core';
 import { FocusCard, Logo, Text, font } from '../ui';
 import { FAVORITES, useApp, type Route } from '../navigation';
 
@@ -42,7 +42,7 @@ function TabLabel({ label, active }: { label: string; active: boolean }) {
  * (Voltar retorna à Início); entre abas, a tela é trocada para não acumular histórico.
  */
 export function TopBar({ active }: { active?: Tab }) {
-  const { go, replace, reset } = useApp();
+  const { session, go, replace, reset } = useApp();
   const open = (route: Route) => {
     if (route.name === 'home') reset(route);
     else if (active === 'home') go(route);
@@ -54,7 +54,10 @@ export function TopBar({ active }: { active?: Tab }) {
       <Logo height={56} />
       <View style={{ flex: 1, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         {TABS.map((t) => (
-          <FocusCard key={t.key} style={compact} onPress={() => active !== t.key && open(t.route)}>
+          <FocusCard key={t.key} style={compact} onPress={() => active !== t.key && open(
+            session.playlist?.id === PAGED_CATALOG_ID && t.key === 'favorites'
+              ? { name: 'movies', category: '__catalog_favorites__' } : t.route,
+          )}>
             <TabLabel label={t.label} active={active === t.key} />
           </FocusCard>
         ))}

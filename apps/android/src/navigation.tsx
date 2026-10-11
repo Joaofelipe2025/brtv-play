@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { DeviceIdentity, DeviceStatus, EpgIndex, Library, LiveItem, Playlist, StreamFormat } from '@brtv/core';
+import type { CatalogSnapshot, DeviceIdentity, DeviceStatus, EpgIndex, Library, LiveItem, Playlist, StreamFormat } from '@brtv/core';
 
 export interface Preferences {
   streamFormat: StreamFormat;
@@ -33,6 +33,7 @@ export interface Session {
   status: DeviceStatus | null;
   playlist: Playlist | null;
   library: Library | null;
+  catalog: CatalogSnapshot | null;
   /** Mensagem (pt-BR) quando a lista atual não pôde ser carregada; null se carregou ou ainda não tentou. */
   libraryError: string | null;
   /** Aviso (pt-BR) sobre a lista aberta, ex.: catálogo público servido do cache; null se não há. */

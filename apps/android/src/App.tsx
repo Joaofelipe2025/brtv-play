@@ -11,6 +11,7 @@ import {
 } from '@expo-google-fonts/poppins';
 import {
   FREE_TV_PLAYLIST_ID,
+  PAGED_CATALOG_ID,
   currentAndNext,
   loadEpg,
   loadFreeTvLibrary,
@@ -30,6 +31,8 @@ import { Home } from './screens/Home';
 import { Live } from './screens/Live';
 import { Movies, Series, SeriesDetail } from './screens/Vod';
 import { About, Settings } from './screens/Settings';
+import { CATALOG_BASE_URL, catalogClient } from './catalog';
+import { CatalogHome, CatalogBrowser, CatalogSeriesDetail } from './screens/PagedVod';
 
 const INITIAL_ROUTE: Route = { name: 'activation' };
 
@@ -51,6 +54,7 @@ export default function App() {
     status: null,
     playlist: null,
     library: null,
+    catalog: null,
     libraryError: null,
     libraryNotice: null,
     loading: false,
@@ -102,9 +106,16 @@ export default function App() {
     seenReloadToken.current = session.reloadToken;
     const freeTv = playlist.id === FREE_TV_PLAYLIST_ID;
     let cancelled = false;
-    update({ loading: true, libraryError: null, libraryNotice: null });
+    const paged = playlist.id === PAGED_CATALOG_ID;
+    update({ loading: true, libraryError: null, libraryNotice: null, ...(!paged ? { catalog: null } : {}) });
     void (async () => {
       try {
+        if (paged) {
+          const catalog = await catalogClient.open(CATALOG_BASE_URL);
+          if (cancelled) return;
+          update({ catalog, library: null, libraryNotice: catalog.notice, libraryError: null, loading: false, epg: new Map() });
+          return;
+        }
         if (freeTv) {
           // Catálogo público: lista separada, só TV ao Vivo e sem EPG (não passa por loadLibrary/loadEpg)
           const { library, notice } = await loadFreeTvLibrary({
@@ -124,7 +135,7 @@ export default function App() {
       } catch (error) {
         if (!cancelled) {
           // O catálogo público já falha com mensagem própria em pt-BR (internet, tamanho, lista inválida)
-          const message = freeTv && error instanceof Error ? error.message : LIBRARY_ERROR;
+          const message = (freeTv || paged) && error instanceof Error ? error.message : LIBRARY_ERROR;
           update({ library: null, libraryError: message, loading: false, epg: new Map() });
         }
       }
@@ -144,6 +155,7 @@ export default function App() {
   if (!fontsLoaded) return null;
 
   let screen;
+  const paged = session.playlist?.id === PAGED_CATALOG_ID;
   switch (route.name) {
     case 'activation':
       screen = <Activation />;
@@ -155,19 +167,19 @@ export default function App() {
       screen = <AddPlaylist />;
       break;
     case 'home':
-      screen = <Home />;
+      screen = paged ? <CatalogHome /> : <Home />;
       break;
     case 'live':
       screen = <Live category={route.category} />;
       break;
     case 'movies':
-      screen = <Movies category={route.category} />;
+      screen = paged ? <CatalogBrowser kind="movies" category={route.category} /> : <Movies category={route.category} />;
       break;
     case 'series':
-      screen = <Series category={route.category} />;
+      screen = paged ? <CatalogBrowser kind="series" category={route.category} /> : <Series category={route.category} />;
       break;
     case 'seriesDetail':
-      screen = <SeriesDetail seriesId={route.seriesId} />;
+      screen = paged ? <CatalogSeriesDetail seriesId={route.seriesId} /> : <SeriesDetail seriesId={route.seriesId} />;
       break;
     case 'settings':
       screen = <Settings />;
