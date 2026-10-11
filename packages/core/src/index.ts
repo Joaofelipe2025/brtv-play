@@ -1,6 +1,7 @@
 export * from './storage';
 export * from './device';
 export * from './api';
+export * from './paged-catalog';
 export * from './m3u';
 export * from './xtream';
 export * from './epg';

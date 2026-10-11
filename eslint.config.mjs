@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       'dist-ipk/**',
+      'catalog-output/**',
       'apps/android/android/**',
       'apps/android/.expo/**',
       '.superpowers/**',

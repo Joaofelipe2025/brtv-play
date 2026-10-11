@@ -52,8 +52,11 @@ export function Settings() {
     for (const c of lib?.live ?? []) set.add(c.group);
     for (const m of lib?.movies ?? []) set.add(m.group);
     for (const s of lib?.series ?? []) set.add(s.group);
+    for (const kind of ['movies', 'series'] as const) {
+      for (const g of session.catalog?.manifest.categories[kind] ?? []) set.add(g.name);
+    }
     return Array.from(set);
-  }, [session.library]);
+  }, [session.library, session.catalog]);
 
   const setFormat = async (streamFormat: StreamFormat) => {
     const prefs = { ...session.prefs, streamFormat };
