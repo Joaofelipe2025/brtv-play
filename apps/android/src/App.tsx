@@ -11,7 +11,8 @@ import {
 } from '@expo-google-fonts/poppins';
 import {
   FREE_TV_PLAYLIST_ID,
-  PAGED_CATALOG_ID,
+  isPagedCatalog,
+  SAIMO_CATALOG_ID,
   PLAYBACK_TEST_ID,
   PLAYBACK_TEST_URL,
   currentAndNext,
@@ -33,7 +34,7 @@ import { Home } from './screens/Home';
 import { Live } from './screens/Live';
 import { Movies, Series, SeriesDetail } from './screens/Vod';
 import { About, Settings } from './screens/Settings';
-import { CATALOG_BASE_URL, catalogClient } from './catalog';
+import { CATALOG_BASE_URL, SAIMO_CATALOG_BASE_URL, catalogClient } from './catalog';
 import { CatalogHome, CatalogBrowser, CatalogSeriesDetail } from './screens/PagedVod';
 
 const INITIAL_ROUTE: Route = { name: 'activation' };
@@ -108,12 +109,12 @@ export default function App() {
     seenReloadToken.current = session.reloadToken;
     const freeTv = playlist.id === FREE_TV_PLAYLIST_ID;
     let cancelled = false;
-    const paged = playlist.id === PAGED_CATALOG_ID;
+    const paged = isPagedCatalog(playlist.id);
     update({ loading: true, libraryError: null, libraryNotice: null, ...(!paged ? { catalog: null } : {}) });
     void (async () => {
       try {
         if (paged) {
-          const catalog = await catalogClient.open(CATALOG_BASE_URL);
+          const catalog = await catalogClient.open(playlist.id === SAIMO_CATALOG_ID ? SAIMO_CATALOG_BASE_URL : CATALOG_BASE_URL);
           if (cancelled) return;
           update({ catalog, library: null, libraryNotice: catalog.notice, libraryError: null, loading: false, epg: new Map() });
           return;
@@ -157,7 +158,7 @@ export default function App() {
   if (!fontsLoaded) return null;
 
   let screen;
-  const paged = session.playlist?.id === PAGED_CATALOG_ID;
+  const paged = isPagedCatalog(session.playlist?.id);
   switch (route.name) {
     case 'activation':
       screen = <Activation />;
@@ -198,6 +199,7 @@ export default function App() {
         <Player
           key={route.isLive ? 'live' : route.url}
           url={route.url}
+          sources={route.sources}
           title={route.title}
           isLive={route.isLive}
           id={route.id}

@@ -17,3 +17,5 @@ export * from './free-tv';
 export * from './brazil';
 export * from './parental';
 export * from './userPlaylists';
+
+export * from './vod-sources';

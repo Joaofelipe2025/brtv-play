@@ -10,6 +10,19 @@ const response = (value: unknown, ok = true) => ({ ok, headers: { get: () => nul
 afterEach(() => vi.useRealTimers());
 
 describe('catálogo estático paginado', () => {
+  it('preserva alternativas válidas e rejeita fontes malformadas', async () => {
+    for (const sources of [undefined, [{ url: 'https://example.org/alt.mp4', label: 'Dublado' }]]) {
+      const data = { ...a, url: 'https://example.org/movie.mp4', sources };
+      const client = new PagedCatalogClient(new MemoryAdapter(), async (url) => response(url.endsWith('/manifest.json') ? manifest : data));
+      const s = await client.open(base);
+      expect((await client.detail(s, a.id)).sources).toEqual(sources);
+    }
+    for (const sources of [[], [{ url: 'file:///local', label: 'Inválida' }], [{ url: 'https://example.org/a', label: '' }]]) {
+      const client = new PagedCatalogClient(new MemoryAdapter(), async (url) => response(url.endsWith('/manifest.json') ? manifest : { ...a, url: 'https://example.org/movie.mp4', sources }));
+      const s = await client.open(base);
+      await expect(client.detail(s, a.id)).rejects.toThrow('Não foi possível');
+    }
+  });
   it('abre apenas o manifesto e busca a página selecionada na mesma versão', async () => {
     const fetcher = vi.fn(async (url: string) => response(url.endsWith('/manifest.json') ? manifest : { items: [a], next: 1 }));
     const client = new PagedCatalogClient(new MemoryAdapter(), fetcher);

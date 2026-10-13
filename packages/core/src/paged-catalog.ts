@@ -1,6 +1,9 @@
 import type { KeyValueAdapter } from './storage';
 
 export const PAGED_CATALOG_ID = 'public-vod-catalog';
+export const SAIMO_CATALOG_ID = 'saimo-vod-catalog';
+export const isPagedCatalog = (id: string | undefined): boolean => id === PAGED_CATALOG_ID || id === SAIMO_CATALOG_ID;
+export interface CatalogSource { url: string; label: string }
 export type CatalogKind = 'movies' | 'series';
 export interface CatalogGroup { id: string; name: string; count: number; pages: number }
 export interface CatalogManifest {
@@ -11,9 +14,9 @@ export interface CatalogManifest {
   categories: { movies: CatalogGroup[]; series: CatalogGroup[] };
 }
 export interface CatalogItem { id: string; name: string; group: string; poster?: string }
-export interface CatalogEpisode { id: string; title: string; season: number; episode: number; url: string }
+export interface CatalogEpisode { id: string; title: string; season: number; episode: number; url: string; sources?: CatalogSource[] }
 export interface CatalogSeason { season: number; count: number; pages: number }
-export interface CatalogDetail extends CatalogItem { url?: string; seasons?: CatalogSeason[] }
+export interface CatalogDetail extends CatalogItem { url?: string; sources?: CatalogSource[]; seasons?: CatalogSeason[] }
 export interface CatalogPage<T> { items: T[]; next: number | null }
 export interface CatalogSearchCursor { page: number; offset: number }
 export interface CatalogSnapshot { manifest: CatalogManifest; baseUrl: string; notice: string | null }
@@ -50,9 +53,10 @@ export function isCatalogManifest(v: unknown): v is CatalogManifest {
 }
 const item = (v: unknown): v is CatalogItem => object(v) && id(v.id) && str(v.name) && str(v.group) && (v.poster === undefined || media(v.poster));
 const season = (v: unknown): v is CatalogSeason => object(v) && count(v.season) && count(v.count) && count(v.pages);
-const detail = (v: unknown): v is CatalogDetail => item(v) && object(v)
+const sources = (v: unknown): boolean => v === undefined || (Array.isArray(v) && v.length > 0 && v.length <= 128 && v.every((s) => object(s) && media(s.url) && str(s.label)));
+const detail = (v: unknown): v is CatalogDetail => item(v) && object(v) && sources(v.sources)
   && ((media(v.url) && v.id.startsWith('m-')) || (v.id.startsWith('s-') && Array.isArray(v.seasons) && v.seasons.length <= 1000 && v.seasons.every(season)));
-const episode = (v: unknown): v is CatalogEpisode => object(v) && id(v.id) && str(v.title) && count(v.season) && count(v.episode) && media(v.url);
+const episode = (v: unknown): v is CatalogEpisode => object(v) && id(v.id) && str(v.title) && count(v.season) && count(v.episode) && media(v.url) && sources(v.sources);
 const pageOf = <T>(guard: (v: unknown) => v is T) => (v: unknown): v is CatalogPage<T> =>
   object(v) && Array.isArray(v.items) && v.items.length <= 100 && v.items.every(guard) && (v.next === null || count(v.next));
 const searchIndex = (v: unknown): v is { pages: number } => object(v) && count(v.pages);

@@ -3,7 +3,7 @@ import { useStore } from 'zustand';
 import { FREE_TV_PLAYLIST, type DeviceStatus, type Playlist } from '@brtv/core';
 import { store } from './platform';
 import { useApp } from './navigation';
-import { CATALOG_PLAYLIST } from './catalog';
+import { CATALOG_PLAYLIST, SAIMO_CATALOG_PLAYLIST } from './catalog';
 
 /** Rótulo de procedência do catálogo público de testes (Free-TV), mostrado na escolha de lista e nas Configurações. */
 export const FREE_TV_LABEL = 'Fonte pública de teste';
@@ -15,7 +15,7 @@ export const FREE_TV_LABEL = 'Fonte pública de teste';
  * para concordarem entre si.
  */
 export function availablePlaylists(status: DeviceStatus | null, userPlaylists: readonly Playlist[]): Playlist[] {
-  return [...(status?.playlists ?? []), ...userPlaylists, FREE_TV_PLAYLIST, CATALOG_PLAYLIST];
+  return [...(status?.playlists ?? []), ...userPlaylists, FREE_TV_PLAYLIST, SAIMO_CATALOG_PLAYLIST, CATALOG_PLAYLIST];
 }
 
 /** `available` é a união; `user` são só as cadastradas neste aparelho (as únicas que podem ser removidas). */
