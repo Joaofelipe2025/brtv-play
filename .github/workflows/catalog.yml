@@ -3,7 +3,7 @@ name: Publicar catálogo e atualização Android
 on:
   workflow_dispatch:
   push:
-    branches: [feat/paged-vod-catalog]
+    branches: [feat/paged-vod-catalog, fix/vod-playback-diagnostics]
 
 permissions:
   contents: write

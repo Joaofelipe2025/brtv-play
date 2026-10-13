@@ -9,6 +9,7 @@ export * from './store';
 export * from './theme';
 export * from './remote';
 export * from './playback';
+export * from './playback-diagnostics';
 export * from './brand.generated';
 export * from './format';
 export * from './library';
