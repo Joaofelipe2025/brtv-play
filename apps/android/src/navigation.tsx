@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { CatalogSnapshot, DeviceIdentity, DeviceStatus, EpgIndex, Library, LiveItem, Playlist, StreamFormat } from '@brtv/core';
+import type { CatalogSnapshot, CatalogSource, DeviceIdentity, DeviceStatus, EpgIndex, Library, LiveItem, Playlist, StreamFormat } from '@brtv/core';
 
 export interface Preferences {
   streamFormat: StreamFormat;
@@ -19,6 +19,7 @@ export type Route =
   | {
       name: 'player';
       url: string;
+      sources?: CatalogSource[];
       title: string;
       isLive: boolean;
       /** Id para histórico e posição (VOD e episódios). */

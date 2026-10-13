@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { PAGED_CATALOG_ID, colors, formatHour } from '@brtv/core';
+import { isPagedCatalog, colors, formatHour } from '@brtv/core';
 import { FocusCard, Logo, Text, font } from '../ui';
 import { FAVORITES, useApp, type Route } from '../navigation';
 
@@ -55,7 +55,7 @@ export function TopBar({ active }: { active?: Tab }) {
       <View style={{ flex: 1, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         {TABS.map((t) => (
           <FocusCard key={t.key} style={compact} onPress={() => active !== t.key && open(
-            session.playlist?.id === PAGED_CATALOG_ID && t.key === 'favorites'
+            isPagedCatalog(session.playlist?.id) && t.key === 'favorites'
               ? { name: 'movies', category: '__catalog_favorites__' } : t.route,
           )}>
             <TabLabel label={t.label} active={active === t.key} />

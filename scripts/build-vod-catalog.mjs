@@ -96,6 +96,11 @@ export async function buildCatalog(input, output) {
   if (pending) reject('Entrada sem URL');
   if (!header || movies.size + series.size === 0) throw new Error('Catálogo vazio ou inválido.');
   const version = 'v2-' + hash.digest('hex').slice(0, 16);
+  return writeCatalog({ movies, series, report, version }, output);
+}
+
+/** Emissor compartilhado; as listagens nunca carregam URLs de reprodução. */
+export async function writeCatalog({ movies, series, report, version }, output) {
   const root = resolve(output);
   const stage = resolve(root, '.stage-' + version);
   await rm(stage, { recursive: true, force: true });
@@ -112,9 +117,9 @@ export async function buildCatalog(input, output) {
   }
   const summaries = { movies: [], series: [] };
   for (const movie of movies.values()) {
-    const { url, ...summary } = movie;
+    const { url, sources, ...summary } = movie;
     summaries.movies.push(summary);
-    await emit(`items/${movie.id}.json`, { ...summary, url });
+    await emit(`items/${movie.id}.json`, { ...summary, url, ...(sources ? { sources } : {}) });
   }
   let episodeCount = 0;
   for (const item of series.values()) {

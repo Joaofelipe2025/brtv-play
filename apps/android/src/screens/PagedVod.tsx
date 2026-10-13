@@ -186,7 +186,7 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
     try {
       const detail = await catalogClient.detail(snapshot, entry.id);
       if (current !== navigationGeneration.current || !detail.url || isGroupLocked(detail.group, store.getState().blockedCategories, session.unlockedCategories)) return;
-      go({ name: 'player', url: detail.url, title: detail.name, isLive: false, id: detail.id });
+      go({ name: 'player', url: detail.url, sources: detail.sources, title: detail.name, isLive: false, id: detail.id });
     } catch { if (current === navigationGeneration.current) setOpenError('Não foi possível abrir o título. Tente novamente.'); }
     finally { if (current === navigationGeneration.current) setOpening(false); }
   };
@@ -273,7 +273,7 @@ export function CatalogSeriesDetail({ seriesId }: { seriesId: string }) {
       <View style={{ flex: 1 }}><FlatList key={`${season}-${pages.block}`} data={pages.items} initialNumToRender={8} maxToRenderPerBatch={8} windowSize={3} extraData={positions} keyExtractor={(e) => e.id}
         renderItem={({ item, index }) => <FocusCard autoFocus={index === 0} style={{ marginVertical: 6 }}
           onFocus={() => { if (index >= pages.items.length - 4 && pages.items.length < MAX_VISIBLE && !pages.busy && !pages.error) pages.more(); }}
-          onPress={() => { if (entry && !isGroupLocked(entry.group, store.getState().blockedCategories, session.unlockedCategories)) go({ name: 'player', url: item.url, title: `${entry.name} · T${item.season} E${item.episode}`, id: item.id, isLive: false }); }}>
+          onPress={() => { if (entry && !isGroupLocked(entry.group, store.getState().blockedCategories, session.unlockedCategories)) go({ name: 'player', url: item.url, sources: item.sources, title: `${entry.name} · T${item.season} E${item.episode}`, id: item.id, isLive: false }); }}>
           <Body>{item.episode}. {item.title}</Body>{positions[item.id] ? <Body muted>Parou em {formatClock(positions[item.id] ?? 0)}</Body> : null}
         </FocusCard>}
         ListEmptyComponent={<Body>{pages.busy ? 'Carregando episódios…' : 'Nenhum episódio nesta temporada.'}</Body>} /></View>

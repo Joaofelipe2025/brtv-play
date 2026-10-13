@@ -3,7 +3,7 @@ name: Publicar catálogo e atualização Android
 on:
   workflow_dispatch:
   push:
-    branches: [feat/paged-vod-catalog, fix/vod-playback-diagnostics]
+    branches: [feat/paged-vod-catalog, fix/vod-playback-diagnostics, feat/saimo-vod]
 
 permissions:
   contents: write
@@ -29,6 +29,8 @@ jobs:
         run: pnpm check
       - name: Preparar catálogo
         run: pnpm catalog:build
+      - name: Preparar catálogo Saimo com fontes alternativas
+        run: pnpm catalog:saimo
       - name: Publicar arquivos estáticos de forma atômica
         shell: bash
         run: |
@@ -50,7 +52,8 @@ jobs:
           fi
       - name: Publicar atualização no canal preview
         if: env.EXPO_TOKEN != ''
-        run: pnpm --filter @brtv/android exec npx eas-cli@latest update --channel preview --platform android --non-interactive --message "Catálogo de filmes e séries sob demanda"
+        run: |
+          pnpm --filter @brtv/android exec npx eas-cli@latest update --channel preview --platform android --non-interactive --message "Saimo: catálogo paginado e fontes alternativas"
       - name: Informar acesso necessário ao EAS
         if: env.EXPO_TOKEN == ''
         run: echo "::notice::Catálogo publicado. EXPO_TOKEN ausente; a atualização EAS deve ser publicada pela sessão Expo autorizada do projeto."
@@ -58,4 +61,4 @@ jobs:
         if: always()
         with:
           name: catalog-build-report
-          path: catalog-output/build-report.json
+          path: catalog-output/**/build-report.json

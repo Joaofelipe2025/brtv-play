@@ -13,6 +13,8 @@ import Video, {
 } from 'react-native-video';
 import {
   RECONNECT,
+  createSourceRound,
+  type CatalogSource,
   channelIndexForNumber,
   colors,
   createChannelNumberInput,
@@ -34,6 +36,10 @@ import { Body, FocusCard, Text, Title, styles } from './ui';
 
 export interface PlayerProps {
   url: string;
+  sources?: CatalogSource[];
+  sourceLabel?: string;
+  onNextSource?(): boolean;
+  onRestartSources?(): void;
   title: string;
   isLive: boolean;
   /** Id para histórico e posição salva (VOD e episódios); sem ele, o histórico usa a URL. */
@@ -77,7 +83,27 @@ function trackLabel(t: TrackInfo | undefined, fallback: string): string {
 
 const DISABLED_TRACK: SelectedTrack = { type: SelectedTrackType.DISABLED };
 
-export function Player({
+/** Mantém a identidade do título; cada origem recebe um player nativo novo. */
+export function Player(props: PlayerProps) {
+  const round = useMemo(() => createSourceRound(props.url, props.isLive ? undefined : props.sources), [props.url, props.sources, props.isLive]);
+  const [, render] = useState(0);
+  const current = round.current();
+  if (props.isLive || round.sources.length < 2) return <PlaybackEngine {...props} />;
+  const next = () => {
+    if (!round.next(current.generation)) return false;
+    render((n) => n + 1);
+    return true;
+  };
+  return <PlaybackEngine {...props}
+    key={`${props.id ?? props.url}-${current.generation}`}
+    url={current.source.url}
+    sourceLabel={`Fonte ${current.index + 1} de ${round.sources.length} · ${current.source.label}`}
+    onNextSource={next}
+    onRestartSources={() => { round.restart(); render((n) => n + 1); }}
+  />;
+}
+
+function PlaybackEngine({
   url,
   title,
   isLive,
@@ -89,11 +115,15 @@ export function Player({
   onExit,
   onTestPlayback,
   epgTitle,
+  sourceLabel,
+  onNextSource,
+  onRestartSources,
 }: PlayerProps) {
   const videoRef = useRef<VideoRef>(null);
-  const maxAttempts = isLive ? RECONNECT.maxAttempts : 1;
+  const multipleSources = onNextSource !== undefined;
+  const maxAttempts = isLive ? RECONNECT.maxAttempts : multipleSources ? 0 : 1;
   const reconnector = useMemo(() => createReconnector({ ...RECONNECT, maxAttempts }), [maxAttempts]);
-  const stall = useMemo(() => createStallDetector(isLive ? undefined : VOD_STALL_TIMEOUT_MS), [isLive]);
+  const stall = useMemo(() => createStallDetector(isLive ? undefined : multipleSources ? 20_000 : VOD_STALL_TIMEOUT_MS), [isLive, multipleSources]);
   const [channelInput] = useState(createChannelNumberInput);
 
   const [playbackStatus, setStatus] = useState<Status>('loading');
@@ -116,6 +146,9 @@ export function Player({
   const [time, setTime] = useState({ current: 0, duration: 0 });
 
   const lastTime = useRef(0);
+  const resumeTime = useRef(0);
+  const resumeTarget = useRef<number | null>(null);
+  const retired = useRef(false);
   /** Primeiro currentTime da tentativa atual; o avanço dele confirma a reprodução. */
   const firstProgress = useRef<number | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -153,6 +186,9 @@ export function Player({
     stall.reset();
     channelInput.clear();
     lastTime.current = 0;
+    resumeTime.current = 0;
+    resumeTarget.current = null;
+    retired.current = false;
     firstProgress.current = null;
     setStatus('loading');
     setFailure(null);
@@ -188,17 +224,27 @@ export function Player({
     if (isLive || !id) return;
     const timer = setInterval(() => {
       const { status: s, paused: p } = live.current;
-      if (s === 'playing' && !p && lastTime.current > 0) store.getState().setPosition(id, lastTime.current);
+      if (s === 'playing' && !p && lastTime.current > 0) store.getState().setPosition(id, resumeTime.current);
     }, SAVE_EVERY_MS);
     return () => {
       clearInterval(timer);
-      if (lastTime.current > 0) store.getState().setPosition(id, lastTime.current);
+      if (resumeTime.current > 0) store.getState().setPosition(id, resumeTime.current);
     };
   }, [id, isLive, url]);
 
+  const nextSource = useCallback(() => {
+    if (retired.current) return true;
+    if (id && resumeTime.current > 0) store.getState().setPosition(id, resumeTime.current);
+    if (onNextSource?.()) { retired.current = true; return true; }
+    return false;
+  }, [id, onNextSource]);
+
+  useEffect(() => { if (issue !== null && multipleSources) nextSource(); }, [issue, multipleSources, nextSource]);
+
   // Falha (erro do player ou travamento): reconecta com backoff ou desiste
   const handleFailure = useCallback((reason: PlaybackFailure = stalledPlaybackFailure(isLive)) => {
-    if (live.current.status === 'error') return;
+    if (retired.current || live.current.status === 'error') return;
+    if (multipleSources && nextSource()) return;
     setFailure(reason);
     if (!reason.retryable) {
       if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
@@ -224,11 +270,11 @@ export function Player({
       setStatus('loading');
       setAttempt((a) => a + 1);
     }, decision.delayMs);
-  }, [reconnector, stall, isLive]);
+  }, [reconnector, stall, isLive, multipleSources, nextSource]);
 
   const onError = useCallback((event: unknown) => handleFailure(describePlaybackFailure(event)), [handleFailure]);
 
-  // Sem avanço: 12 s ao vivo; VOD recebe 45 s para abrir MP4s grandes ou reabastecer o buffer.
+  // Sem avanço: 12 s ao vivo; 20 s com alternativas ou 45 s para VOD de fonte única.
   // Não amostra durante reconexão/erro,
   // para que uma nova tentativa pendente não gaste outra.
   useEffect(() => {
@@ -353,8 +399,12 @@ export function Player({
       setTime((t) => ({ ...t, duration: e.duration }));
       // VOD: retoma a posição salva (nem nos primeiros segundos, nem colada no fim)
       if (isLive || !id) return;
-      const saved = store.getState().continueWatching[id] ?? 0;
-      if (saved > 5 && saved < e.duration - 10) videoRef.current?.seek(saved);
+      const saved = resumeTime.current || store.getState().continueWatching[id] || 0;
+      if (saved > 5 && saved < e.duration - 10) {
+        resumeTime.current = saved;
+        resumeTarget.current = saved;
+        videoRef.current?.seek(saved);
+      } else { resumeTime.current = 0; resumeTarget.current = null; }
     },
     [id, isLive],
   );
@@ -370,7 +420,10 @@ export function Player({
   }, [reconnector, stall]);
 
   const onProgress = useCallback((e: OnProgressData) => {
+    if (retired.current) return;
     lastTime.current = e.currentTime;
+    if (resumeTarget.current !== null && Math.abs(e.currentTime - resumeTarget.current) < 3) resumeTarget.current = null;
+    if (resumeTarget.current === null && e.currentTime > 0.5) resumeTime.current = e.currentTime;
     if (firstProgress.current === null) firstProgress.current = e.currentTime;
     else if (e.currentTime > firstProgress.current + 0.05) markPlaying();
     setTime((t) => (Math.abs(t.current - e.currentTime) < 0.5 ? t : { ...t, current: e.currentTime }));
@@ -405,6 +458,7 @@ export function Player({
   };
 
   const retry = () => {
+    if (onRestartSources) { onRestartSources(); return; }
     if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
     retryPending.current = false;
     reconnector.reset();
@@ -469,6 +523,7 @@ export function Player({
           pointerEvents="none"
           style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}
         >
+          {sourceLabel && <Body>{sourceLabel}</Body>}
           <ActivityIndicator size="large" color={colors.accent} />
           {status === 'reconnecting' && (
             <Body>
@@ -483,6 +538,7 @@ export function Player({
         <View style={[styles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
           <Title>Não foi possível reproduzir</Title>
           <Body>{title}</Body>
+          {sourceLabel && <Body>Não foi possível reproduzir com as fontes tentadas. {sourceLabel}</Body>}
           {issue !== null ? (
             <Body muted>{issue}</Body>
           ) : failure ? (
@@ -532,6 +588,7 @@ export function Player({
             </Text>
           )}
           <Title>{title}</Title>
+          {sourceLabel && <Body muted>{sourceLabel}</Body>}
           {epgTitle !== undefined && epgTitle !== '' && <Body muted>{epgTitle}</Body>}
           {!isLive && (
             <View style={{ marginVertical: 12 }}>
@@ -544,6 +601,7 @@ export function Player({
               </View>
             </View>
           )}
+          {multipleSources && <FocusCard onPress={() => { if (!nextSource()) showNotice('Esta é a última fonte disponível'); }}><Body>Trocar fonte</Body></FocusCard>}
           <View style={{ flexDirection: 'row', gap: 16, marginTop: 16 }}>
             <FocusCard
               autoFocus
