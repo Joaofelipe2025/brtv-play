@@ -12,6 +12,8 @@ import {
 import {
   FREE_TV_PLAYLIST_ID,
   PAGED_CATALOG_ID,
+  PLAYBACK_TEST_ID,
+  PLAYBACK_TEST_URL,
   currentAndNext,
   loadEpg,
   loadFreeTvLibrary,
@@ -214,6 +216,7 @@ export default function App() {
               }
             : {})}
           onExit={back}
+          onTestPlayback={route.id === PLAYBACK_TEST_ID ? undefined : () => replace({ name: 'player', url: PLAYBACK_TEST_URL, title: 'Teste de reprodução · Big Buck Bunny', id: PLAYBACK_TEST_ID, isLive: false })}
         />
       );
       break;

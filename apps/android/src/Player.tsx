@@ -5,7 +5,6 @@ import Video, {
   ViewType,
   type OnAudioTracksData,
   type OnLoadData,
-  type OnPlaybackStateChangedData,
   type OnProgressData,
   type OnTextTracksData,
   type ReactVideoSource,
@@ -20,10 +19,14 @@ import {
   createReconnector,
   createStallDetector,
   detectStreamKind,
+  describePlaybackFailure,
   digitOf,
   formatClock,
   freeTvPlaybackIssue,
   mapAndroidKey,
+  stalledPlaybackFailure,
+  VOD_STALL_TIMEOUT_MS,
+  type PlaybackFailure,
   type RemoteAction,
 } from '@brtv/core';
 import { store } from './platform';
@@ -42,6 +45,7 @@ export interface PlayerProps {
   /** Recebe o número (1-based) já validado contra `total`. */
   onChannelNumber?(n: number): void;
   onExit(): void;
+  onTestPlayback?(): void;
   epgTitle?: string;
 }
 
@@ -83,14 +87,17 @@ export function Player({
   onChannel,
   onChannelNumber,
   onExit,
+  onTestPlayback,
   epgTitle,
 }: PlayerProps) {
   const videoRef = useRef<VideoRef>(null);
-  const [reconnector] = useState(createReconnector);
-  const [stall] = useState(createStallDetector);
+  const maxAttempts = isLive ? RECONNECT.maxAttempts : 1;
+  const reconnector = useMemo(() => createReconnector({ ...RECONNECT, maxAttempts }), [maxAttempts]);
+  const stall = useMemo(() => createStallDetector(isLive ? undefined : VOD_STALL_TIMEOUT_MS), [isLive]);
   const [channelInput] = useState(createChannelNumberInput);
 
   const [playbackStatus, setStatus] = useState<Status>('loading');
+  const [failure, setFailure] = useState<PlaybackFailure | null>(null);
   // Página de vídeo externa (YouTube etc.): não é mídia para este player. Nem tenta tocar nem reconectar;
   // mostra o aviso no mesmo estado de erro, sem gastar tentativas do reconector.
   const issue = useMemo(() => freeTvPlaybackIssue(url), [url]);
@@ -148,6 +155,7 @@ export function Player({
     lastTime.current = 0;
     firstProgress.current = null;
     setStatus('loading');
+    setFailure(null);
     setAttempt(0);
     setRetryNo(0);
     setPaused(false);
@@ -189,7 +197,15 @@ export function Player({
   }, [id, isLive, url]);
 
   // Falha (erro do player ou travamento): reconecta com backoff ou desiste
-  const handleFailure = useCallback(() => {
+  const handleFailure = useCallback((reason: PlaybackFailure = stalledPlaybackFailure(isLive)) => {
+    if (live.current.status === 'error') return;
+    setFailure(reason);
+    if (!reason.retryable) {
+      if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
+      retryPending.current = false;
+      setStatus('error');
+      return;
+    }
     if (retryPending.current) return;
     const decision = reconnector.fail();
     if (decision.action === 'giveUp') {
@@ -208,9 +224,12 @@ export function Player({
       setStatus('loading');
       setAttempt((a) => a + 1);
     }, decision.delayMs);
-  }, [reconnector, stall]);
+  }, [reconnector, stall, isLive]);
 
-  // Travamento: currentTime parado por 12 s fora de pausa. Não amostra durante reconexão/erro,
+  const onError = useCallback((event: unknown) => handleFailure(describePlaybackFailure(event)), [handleFailure]);
+
+  // Sem avanço: 12 s ao vivo; VOD recebe 45 s para abrir MP4s grandes ou reabastecer o buffer.
+  // Não amostra durante reconexão/erro,
   // para que uma nova tentativa pendente não gaste outra.
   useEffect(() => {
     const id = setInterval(() => {
@@ -346,15 +365,9 @@ export function Player({
     reconnector.succeed();
     stall.reset();
     setRetryNo(0);
+    setFailure(null);
     setStatus('playing');
   }, [reconnector, stall]);
-
-  const onPlaybackStateChanged = useCallback(
-    (e: OnPlaybackStateChangedData) => {
-      if (e.isPlaying) markPlaying();
-    },
-    [markPlaying],
-  );
 
   const onProgress = useCallback((e: OnProgressData) => {
     lastTime.current = e.currentTime;
@@ -399,6 +412,7 @@ export function Player({
     lastTime.current = 0;
     firstProgress.current = null;
     setRetryNo(0);
+    setFailure(null);
     setStatus('loading');
     setAttempt((a) => a + 1);
   };
@@ -444,10 +458,9 @@ export function Player({
           selectedTextTrack={selectedText}
           onLoad={onLoad}
           onProgress={onProgress}
-          onPlaybackStateChanged={onPlaybackStateChanged}
           onAudioTracks={onAudioTracks}
           onTextTracks={onTextTracks}
-          onError={handleFailure}
+          onError={onError}
         />
       )}
 
@@ -459,20 +472,24 @@ export function Player({
           <ActivityIndicator size="large" color={colors.accent} />
           {status === 'reconnecting' && (
             <Body>
-              Reconectando, tentativa {Math.max(1, retryNo)} de {RECONNECT.maxAttempts}
+              Reconectando, tentativa {Math.max(1, retryNo)} de {maxAttempts}
             </Body>
           )}
+          {failure && <Body>{failure.code}: {failure.message}</Body>}
         </View>
       )}
 
       {status === 'error' && (
         <View style={[styles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
           <Title>Não foi possível reproduzir</Title>
+          <Body>{title}</Body>
           {issue !== null ? (
             <Body muted>{issue}</Body>
+          ) : failure ? (
+            <><Body muted>{failure.message}</Body><Body>Código: {failure.code}</Body></>
           ) : (
             <Body muted>
-              O sinal não respondeu depois de {RECONNECT.maxAttempts} tentativas. Confira a conexão ou escolha outro{' '}
+              O sinal não respondeu. Confira a conexão ou escolha outro{' '}
               {isLive ? 'canal' : 'título'}.
             </Body>
           )}
@@ -480,6 +497,10 @@ export function Player({
           <FocusCard autoFocus onPress={issue !== null ? onExit : retry} style={{ marginTop: 24 }}>
             <Body>{issue !== null ? 'Voltar' : 'Tentar de novo'}</Body>
           </FocusCard>
+          {issue === null && onTestPlayback && <FocusCard onPress={onTestPlayback} style={{ marginTop: 16 }}>
+            <Body>Testar vídeo de demonstração</Body>
+          </FocusCard>}
+          {issue === null && <FocusCard onPress={onExit} style={{ marginTop: 16 }}><Body>Voltar</Body></FocusCard>}
         </View>
       )}
 
