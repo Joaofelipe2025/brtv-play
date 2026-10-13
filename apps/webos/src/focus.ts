@@ -1,4 +1,4 @@
-import { mapWebosKey, type RemoteAction } from '@brtv/core';
+import { digitOf, mapWebosKey, type RemoteAction } from '@brtv/core';
 
 /**
  * Navegação espacial por D-pad. Todo elemento com a classe `focusable` entra no
@@ -191,8 +191,8 @@ export function installRemote(onBack: () => void): () => void {
 
     const target = e.target as HTMLElement | null;
     const typing = target instanceof HTMLInputElement;
-    // Em campos de texto, esquerda/direita movem o cursor
-    if (typing && (action === 'left' || action === 'right')) return;
+    // Em campos de texto, esquerda/direita movem o cursor e os dígitos são digitados
+    if (typing && (action === 'left' || action === 'right' || digitOf(action) !== null)) return;
 
     e.preventDefault();
     window.dispatchEvent(new CustomEvent<RemoteAction>('brtv:key', { detail: action }));

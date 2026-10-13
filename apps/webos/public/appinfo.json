@@ -7,9 +7,10 @@
   "title": "BRTV PLAY",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
-  "bgColor": "#0B0F14",
+  "bgColor": "#06080B",
   "resolution": "1920x1080",
   "disableBackHistoryAPI": true,
   "uiRevision": 2,
-  "transparent": false
+  "transparent": false,
+  "requiredACG": []
 }

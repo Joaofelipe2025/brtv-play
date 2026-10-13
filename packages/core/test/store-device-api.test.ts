@@ -6,7 +6,7 @@ import {
   isValidMac,
   loadOrCreateDevice,
 } from '../src/device';
-import { MockBackendService, TRIAL_DURATION_MS, DEMO_M3U } from '../src/api';
+import { MockBackendService, TRIAL_DURATION_MS, DEMO_M3U, type Playlist } from '../src/api';
 import { createAppStore, STORE_STORAGE_KEY } from '../src/store';
 import { parseM3u } from '../src/m3u';
 import { mapAndroidKey, mapWebosKey } from '../src/remote';
@@ -44,7 +44,7 @@ describe('device', () => {
 
 describe('MockBackendService', () => {
   it('retorna trial de 7 dias com playlist de demonstração', async () => {
-    let now = 1_000_000;
+    const now = 1_000_000;
     const backend = new MockBackendService(() => now);
     const status = await backend.getDeviceStatus('AA:BB:CC:DD:EE:FF', '123456');
     expect(status.status).toBe('trial');
@@ -126,6 +126,113 @@ describe('store', () => {
     const store = createAppStore(adapter);
     await store.hydrate();
     expect(store.getState().favorites).toEqual([]);
+    expect(store.getState().userPlaylists).toEqual([]);
+  });
+});
+
+describe('store: listas do usuário', () => {
+  const xtream: Playlist = {
+    id: 'user-1',
+    name: 'Casa',
+    kind: 'xtream',
+    server: 'http://exemplo.test:8080',
+    username: 'usuario',
+    password: 'senha',
+  };
+  const m3u: Playlist = {
+    id: 'user-2',
+    name: 'Link',
+    kind: 'm3u',
+    url: 'http://exemplo.test/lista.m3u',
+  };
+
+  it('começa sem listas do usuário', () => {
+    expect(createAppStore(new MemoryAdapter()).getState().userPlaylists).toEqual([]);
+  });
+
+  it('adiciona listas na ordem de cadastro', () => {
+    const store = createAppStore(new MemoryAdapter());
+    store.getState().addUserPlaylist(xtream);
+    store.getState().addUserPlaylist(m3u);
+    expect(store.getState().userPlaylists).toEqual([xtream, m3u]);
+  });
+
+  it('substitui a lista quando o id já existe, mantendo a posição', () => {
+    const store = createAppStore(new MemoryAdapter());
+    store.getState().addUserPlaylist(xtream);
+    store.getState().addUserPlaylist(m3u);
+    const renamed: Playlist = { ...xtream, name: 'Casa nova' };
+    store.getState().addUserPlaylist(renamed);
+    expect(store.getState().userPlaylists).toEqual([renamed, m3u]);
+  });
+
+  it('remove uma lista pelo id e ignora ids desconhecidos', () => {
+    const store = createAppStore(new MemoryAdapter());
+    store.getState().addUserPlaylist(xtream);
+    store.getState().addUserPlaylist(m3u);
+    store.getState().removeUserPlaylist('user-1');
+    expect(store.getState().userPlaylists).toEqual([m3u]);
+    store.getState().removeUserPlaylist('nao-existe');
+    expect(store.getState().userPlaylists).toEqual([m3u]);
+  });
+
+  it('persiste as listas e restaura via hydrate', async () => {
+    const adapter = new MemoryAdapter();
+    const first = createAppStore(adapter);
+    first.getState().addUserPlaylist(xtream);
+    first.getState().addUserPlaylist(m3u);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const second = createAppStore(adapter);
+    await second.hydrate();
+    expect(second.getState().userPlaylists).toEqual([xtream, m3u]);
+
+    second.getState().removeUserPlaylist('user-1');
+    await new Promise((r) => setTimeout(r, 0));
+    const third = createAppStore(adapter);
+    await third.hydrate();
+    expect(third.getState().userPlaylists).toEqual([m3u]);
+  });
+
+  it('hydrate de dados antigos, sem o campo, deixa a lista vazia', async () => {
+    const adapter = new MemoryAdapter();
+    await adapter.set(STORE_STORAGE_KEY, JSON.stringify({ favorites: ['a'] }));
+    const store = createAppStore(adapter);
+    await store.hydrate();
+    expect(store.getState().favorites).toEqual(['a']);
+    expect(store.getState().userPlaylists).toEqual([]);
+  });
+
+  it('hydrate ignora userPlaylists que não seja um array', async () => {
+    const adapter = new MemoryAdapter();
+    await adapter.set(STORE_STORAGE_KEY, JSON.stringify({ userPlaylists: { id: 'x' } }));
+    const store = createAppStore(adapter);
+    await store.hydrate();
+    expect(store.getState().userPlaylists).toEqual([]);
+  });
+
+  it('hydrate descarta entradas inválidas e mantém as válidas', async () => {
+    const adapter = new MemoryAdapter();
+    await adapter.set(
+      STORE_STORAGE_KEY,
+      JSON.stringify({
+        userPlaylists: [
+          xtream,
+          null,
+          'texto',
+          42,
+          { id: 'sem-nome', kind: 'm3u', url: 'http://exemplo.test/a.m3u' },
+          { name: 'Sem id', kind: 'm3u', url: 'http://exemplo.test/a.m3u' },
+          { id: 'kind-ruim', name: 'X', kind: 'outro' },
+          { id: 'xtream-incompleta', name: 'X', kind: 'xtream', server: 'http://exemplo.test' },
+          { id: 'm3u-vazia', name: 'X', kind: 'm3u' },
+          m3u,
+        ],
+      }),
+    );
+    const store = createAppStore(adapter);
+    await store.hydrate();
+    expect(store.getState().userPlaylists).toEqual([xtream, m3u]);
   });
 });
 

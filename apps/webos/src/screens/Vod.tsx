@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
+import { firstUnlockedGroup, isGroupLocked, unlockedItems } from '@brtv/core';
 import { useApp, type Route } from '../context';
 import { useAutoFocus } from '../hooks';
 import { store } from '../platform';
@@ -61,21 +62,27 @@ function VodBrowser({
   const [pending, setPending] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
+  const unlocked = session.unlockedCategories;
   const groups = useMemo(() => Array.from(new Set(entries.map((e) => e.group))), [entries]);
-  const activeGroup = category ?? groups[0] ?? null;
+  // Categoria da rota só vale se ainda existe (a lista pode ter sido recarregada);
+  // sem ela, a primeira categoria que não pede PIN
+  const activeGroup =
+    (category !== undefined && groups.indexOf(category) >= 0 ? category : null) ??
+    firstUnlockedGroup(groups, blocked, unlocked);
+  // Categoria bloqueada vinda da rota: pede o PIN antes de mostrar
+  const activeLocked = activeGroup !== null && isGroupLocked(activeGroup, blocked, unlocked);
+  const gate = pending ?? (activeLocked ? activeGroup : null);
+
+  // A tela é reaproveitada quando a rota troca de categoria: um PIN pendente não sobrevive à troca
+  useEffect(() => setPending(null), [category]);
 
   // Com busca, procura em todas as categorias liberadas
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (q) {
-      return entries.filter(
-        (e) =>
-          e.name.toLowerCase().includes(q) &&
-          (!blocked.includes(e.group) || session.unlockedCategories.includes(e.group)),
-      );
-    }
+    if (q) return unlockedItems(entries, blocked, unlocked).filter((e) => e.name.toLowerCase().includes(q));
+    if (activeLocked) return [];
     return entries.filter((e) => e.group === activeGroup);
-  }, [entries, activeGroup, query, blocked, session.unlockedCategories]);
+  }, [entries, activeGroup, activeLocked, query, blocked, unlocked]);
 
   const focused = visible.find((e) => e.id === focusedId) ?? visible[0] ?? null;
   const resumeAt = focused ? positions[focused.id] : undefined;
@@ -83,7 +90,7 @@ function VodBrowser({
   useAutoFocus(entries.length > 0, [entries.length]);
 
   const choose = (g: string) => {
-    if (blocked.includes(g) && !session.unlockedCategories.includes(g)) {
+    if (isGroupLocked(g, blocked, unlocked)) {
       setPending(g);
       return;
     }
@@ -113,15 +120,22 @@ function VodBrowser({
       {focused && <Backdrop src={focused.poster} title={focused.name} />}
       <TopBar active={routeName} />
 
-      {pending ? (
+      {gate ? (
         <PinGate
-          category={pending}
+          category={gate}
           onUnlock={() => {
-            update({ unlockedCategories: [...session.unlockedCategories, pending] });
-            replace({ name: routeName, category: pending } as Route);
+            update({ unlockedCategories: [...unlocked, gate] });
+            replace({ name: routeName, category: gate } as Route);
             setPending(null);
           }}
-          onCancel={() => setPending(null)}
+          onCancel={() => {
+            setPending(null);
+            // Cancelou o PIN da categoria da rota: volta para a primeira que não pede PIN
+            if (!pending) {
+              const fallback = firstUnlockedGroup(groups, blocked, unlocked);
+              replace((fallback ? { name: routeName, category: fallback } : { name: routeName }) as Route);
+            }
+          }}
         />
       ) : (
         <>
@@ -163,9 +177,11 @@ function VodBrowser({
 
           <div className="scroll" style={{ flex: 1, marginTop: 8 }}>
             {visible.length === 0 ? (
-              <p className="muted" style={{ marginTop: 40 }}>
-                Nada encontrado para “{query}”.
-              </p>
+              query.trim() ? (
+                <p className="muted" style={{ marginTop: 40 }}>
+                  Nada encontrado para “{query}”.
+                </p>
+              ) : null
             ) : (
               <div className="posters">
                 {visible.map((e) => (

@@ -1,5 +1,16 @@
+# Layout de node_modules igual ao do npm: o Metro (Expo SDK 52) não resolve o layout isolado do pnpm
+nodeLinker: hoisted
+
 packages:
   - "packages/*"
   - "apps/*"
+
+# Scripts de instalação permitidos (pnpm 11 exige aprovação explícita)
 allowBuilds:
+  # Vite/Vitest: baixa o binário da plataforma
   esbuild: true
+  # CLI do webOS: só ajusta permissões dos próprios arquivos de configuração (necessário no Linux/CI)
+  '@webos-tools/cli': true
+  # Extensões nativas opcionais do ssh2 (usado pelo ares-install); o empacotamento não precisa delas
+  ssh2: false
+  cpu-features: false

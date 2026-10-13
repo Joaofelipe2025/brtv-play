@@ -2,21 +2,39 @@
   "name": "brtv-play",
   "version": "0.1.0",
   "private": true,
-  "description": "BRTV PLAY — reprodutor de IPTV para Android TV e LG webOS (monorepo)",
+  "description": "BRTV PLAY \u2014 reprodutor de IPTV para Android TV e LG webOS (monorepo)",
   "scripts": {
-    "test": "pnpm --filter @brtv/core test",
-    "typecheck": "pnpm -r --filter @brtv/core --filter @brtv/webos typecheck",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @brtv/core test && node --test scripts/*.test.mjs",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm webos:build",
     "webos:dev": "pnpm --filter @brtv/webos dev",
     "webos:build": "pnpm --filter @brtv/webos build",
     "webos:package": "pnpm --filter @brtv/webos package",
+    "webos:device": "pnpm --filter @brtv/webos exec ares-setup-device",
+    "webos:install": "node scripts/webos-install.mjs",
     "android": "pnpm --filter @brtv/android android",
-    "brand:assets": "node scripts/generate-brand-assets.mjs"
+    "android:start": "pnpm --filter @brtv/android start",
+    "android:apk": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile preview",
+    "android:store": "pnpm --filter @brtv/android exec npx eas-cli@latest build --platform android --profile production",
+    "android:serve": "node scripts/serve-apk.mjs",
+    "android:update": "pnpm --filter @brtv/android exec npx eas-cli@latest update --channel preview --platform android --auto",
+    "brand:assets": "node scripts/generate-brand-assets.mjs",
+    "catalog:saimo": "node scripts/build-saimo-catalog.mjs",
+    "catalog:build": "node scripts/build-vod-catalog.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "packageManager": "pnpm@11.25.0",
   "devDependencies": {
-    "@resvg/resvg-js": "^2.6.2"
+    "@eslint/js": "^9.39.5",
+    "@resvg/resvg-js": "^2.6.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1"
   }
 }

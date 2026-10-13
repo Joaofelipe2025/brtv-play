@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, ScrollView, TVEventHandler, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import {
@@ -9,41 +9,41 @@ import {
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
-import QRCode from 'react-native-qrcode-svg';
-import { FlashList } from '@shopify/flash-list';
-import Video, { type OnVideoErrorData } from 'react-native-video';
-import { useStore } from 'zustand';
 import {
-  ACTIVATION_URL,
-  MockBackendService,
+  FREE_TV_PLAYLIST_ID,
+  isPagedCatalog,
+  SAIMO_CATALOG_ID,
+  PLAYBACK_TEST_ID,
+  PLAYBACK_TEST_URL,
   currentAndNext,
-  daysLeft,
+  loadEpg,
+  loadFreeTvLibrary,
+  loadLibrary,
   loadOrCreateDevice,
-  parseM3u,
-  colors,
-  type DeviceIdentity,
-  type DeviceStatus,
-  type EpgIndex,
-  type M3uChannel,
-  type Playlist,
 } from '@brtv/core';
-import { asyncAdapter, store } from './platform';
-import { Body, FocusCard, Logo, Text, Title, styles } from './ui';
+import { asyncAdapter, loadPreferences, playlistFetch, store, streamingFetch } from './platform';
+import { Player } from './Player';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ScaledCanvas } from './canvas';
+import { useAutoUpdate } from './updates';
+import { AppContext, type AppContextValue, type Route, type Session } from './navigation';
+import { Activation } from './screens/Activation';
+import { AddPlaylist } from './screens/AddPlaylist';
+import { Playlists } from './screens/Playlists';
+import { Home } from './screens/Home';
+import { Live } from './screens/Live';
+import { Movies, Series, SeriesDetail } from './screens/Vod';
+import { About, Settings } from './screens/Settings';
+import { CATALOG_BASE_URL, SAIMO_CATALOG_BASE_URL, catalogClient } from './catalog';
+import { CatalogHome, CatalogBrowser, CatalogSeriesDetail } from './screens/PagedVod';
 
-type Screen =
-  | { name: 'home' }
-  | { name: 'live' }
-  | { name: 'settings' }
-  | { name: 'player'; index: number };
+const INITIAL_ROUTE: Route = { name: 'activation' };
 
-const MAX_RECONNECT_ATTEMPTS = 3;
-const POLL_MS = 10_000;
-/** Ponto único de troca para o backend real (ver README). */
-const backend = new MockBackendService();
-/** EPG ainda não carregado no Android nesta versão. */
-const NO_EPG: EpgIndex = new Map();
+/** Mostrada na Início quando a lista (Xtream ou M3U) do aparelho não carrega. */
+const LIBRARY_ERROR = 'Não foi possível carregar esta lista. Confira os dados e a conexão.';
 
 export default function App() {
+  useAutoUpdate();
   const [fontsLoaded] = useFonts({
     Poppins_300Light,
     Poppins_400Regular,
@@ -51,351 +51,193 @@ export default function App() {
     Poppins_600SemiBold,
     Poppins_700Bold,
   });
-  const [screen, setScreen] = useState<Screen>({ name: 'home' });
-  const [device, setDevice] = useState<DeviceIdentity | null>(null);
-  const [status, setStatus] = useState<DeviceStatus | null>(null);
-  const [playlist, setPlaylist] = useState<Playlist | null>(null);
-  const [channels, setChannels] = useState<M3uChannel[]>([]);
+  const [stack, setStack] = useState<Route[]>([INITIAL_ROUTE]);
+  const [session, setSession] = useState<Session>({
+    device: null,
+    status: null,
+    playlist: null,
+    library: null,
+    catalog: null,
+    libraryError: null,
+    libraryNotice: null,
+    loading: false,
+    epg: new Map(),
+    prefs: { streamFormat: 'hls' },
+    unlockedCategories: [],
+    reloadToken: 0,
+  });
+
+  const route = stack[stack.length - 1] ?? INITIAL_ROUTE;
+
+  const go = useCallback((next: Route) => setStack((s) => [...s, next]), []);
+  const replace = useCallback((next: Route) => setStack((s) => [...s.slice(0, -1), next]), []);
+  const reset = useCallback((next: Route) => setStack([next]), []);
+  const back = useCallback(() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)), []);
+  const update = useCallback((patch: Partial<Session>) => setSession((prev) => ({ ...prev, ...patch })), []);
 
   useEffect(() => {
-    void loadOrCreateDevice(asyncAdapter).then(setDevice);
+    void loadOrCreateDevice(asyncAdapter).then((device) => update({ device }));
     void store.hydrate();
-  }, []);
+    void loadPreferences().then((prefs) => update({ prefs }));
+  }, [update]);
 
-  // Voltar: player → live → home; em home o Android fecha o app
+  // Voltar: o Player é dono do Voltar enquanto está montado; nas demais telas desempilha
+  // e, na raiz, devolve o evento ao sistema (sai do app).
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (screen.name === 'player') {
-        setScreen({ name: 'live' });
-        return true;
-      }
-      if (screen.name === 'live' || screen.name === 'settings') {
-        setScreen({ name: 'home' });
+      const s = stackRef.current;
+      if (s[s.length - 1]?.name === 'player') return false;
+      if (s.length > 1) {
+        back();
         return true;
       }
       return false;
     });
     return () => sub.remove();
-  }, [screen]);
+  }, [back]);
 
-  // Ativação: polling a cada 10s até existir playlist
+  // Carrega biblioteca e EPG quando a playlist, o formato ou o pedido de recarga mudam
+  const playlistId = session.playlist?.id;
+  const seenReloadToken = useRef(session.reloadToken);
   useEffect(() => {
-    if (!device || playlist) return;
-    const check = async () => {
+    const playlist = session.playlist;
+    if (!playlist) return;
+    // "Recarregar lista" muda o reloadToken: é um pedido para baixar a fonte de novo, não só abrir a lista
+    const reload = session.reloadToken !== seenReloadToken.current;
+    seenReloadToken.current = session.reloadToken;
+    const freeTv = playlist.id === FREE_TV_PLAYLIST_ID;
+    let cancelled = false;
+    const paged = isPagedCatalog(playlist.id);
+    update({ loading: true, libraryError: null, libraryNotice: null, ...(!paged ? { catalog: null } : {}) });
+    void (async () => {
       try {
-        const s = await backend.getDeviceStatus(device.mac, device.key);
-        setStatus(s);
-        const first = s.playlists[0];
-        if (first) setPlaylist(first);
-      } catch {
-        // mantém a ativação e tenta de novo no próximo ciclo
+        if (paged) {
+          const catalog = await catalogClient.open(playlist.id === SAIMO_CATALOG_ID ? SAIMO_CATALOG_BASE_URL : CATALOG_BASE_URL);
+          if (cancelled) return;
+          update({ catalog, library: null, libraryNotice: catalog.notice, libraryError: null, loading: false, epg: new Map() });
+          return;
+        }
+        if (freeTv) {
+          // Catálogo público: lista separada, só TV ao Vivo e sem EPG (não passa por loadLibrary/loadEpg)
+          const { library, notice } = await loadFreeTvLibrary({
+            storage: asyncAdapter,
+            fetchFn: playlistFetch,
+            force: reload,
+          });
+          if (cancelled) return;
+          update({ library, libraryNotice: notice, libraryError: null, loading: false, epg: new Map() });
+          return;
+        }
+        const library = await loadLibrary(playlist, session.prefs.streamFormat);
+        if (cancelled) return;
+        update({ library, libraryError: null, loading: false });
+        const epg = await loadEpg(library.epgUrl, streamingFetch);
+        if (!cancelled) update({ epg });
+      } catch (error) {
+        if (!cancelled) {
+          // O catálogo público já falha com mensagem própria em pt-BR (internet, tamanho, lista inválida)
+          const message = (freeTv || paged) && error instanceof Error ? error.message : LIBRARY_ERROR;
+          update({ library: null, libraryError: message, loading: false, epg: new Map() });
+        }
       }
+    })();
+    return () => {
+      cancelled = true;
     };
-    void check();
-    const id = setInterval(() => void check(), POLL_MS);
-    return () => clearInterval(id);
-  }, [device, playlist]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playlistId, session.prefs.streamFormat, session.reloadToken]);
 
-  useEffect(() => {
-    if (playlist?.kind === 'm3u') setChannels(parseM3u(playlist.content));
-  }, [playlist]);
+  const value: AppContextValue = useMemo(
+    () => ({ session, update, go, replace, reset, back }),
+    [session, update, go, replace, reset, back],
+  );
 
   // Espera as fontes para não piscar a família do sistema
   if (!fontsLoaded) return null;
 
-  if (!playlist) {
-    return <ActivationView device={device} status={status} />;
-  }
-
-  if (screen.name === 'home') {
-    return (
-      <HomeView
-        playlistName={playlist.name}
-        onLive={() => setScreen({ name: 'live' })}
-        onSettings={() => setScreen({ name: 'settings' })}
-      />
-    );
-  }
-
-  if (screen.name === 'settings') {
-    return (
-      <SettingsView
-        device={device}
-        onReload={() => {
-          // Volta à ativação: ela consulta o servidor de novo e recarrega a playlist
-          setPlaylist(null);
-          setScreen({ name: 'home' });
-        }}
-      />
-    );
-  }
-
-  if (screen.name === 'live') {
-    return <LiveView channels={channels} onPlay={(index) => setScreen({ name: 'player', index })} />;
-  }
-
-  const current = channels[screen.index];
-  if (!current) {
-    return <LiveView channels={channels} onPlay={(index) => setScreen({ name: 'player', index })} />;
-  }
-
-  return (
-    <PlayerView
-      channel={current}
-      index={screen.index}
-      total={channels.length}
-      onChannel={(delta) => {
-        if (channels.length === 0) return;
-        const next = (screen.index + delta + channels.length) % channels.length;
-        setScreen({ name: 'player', index: next });
-      }}
-    />
-  );
-}
-
-function ActivationView({ device, status }: { device: DeviceIdentity | null; status: DeviceStatus | null }) {
-  const statusText = !status
-    ? 'Verificando…'
-    : status.status === 'trial'
-      ? `Trial: ${daysLeft(status.expiresAt)} dias`
-      : status.status === 'active'
-        ? 'Ativo'
-        : 'Expirado';
-
-  return (
-    <View style={[styles.screen, { flexDirection: 'row', gap: 64, alignItems: 'center' }]}>
-      <StatusBar style="light" />
-      <View style={{ flex: 1 }}>
-        <Logo height={96} />
-        <Title>Ative seu aparelho</Title>
-        <FocusCard autoFocus style={{ marginBottom: 16 }}>
-          <Body muted>MAC</Body>
-          <Text style={{ color: colors.textPrimary, fontSize: 56, fontWeight: '700' }}>{device?.mac ?? '—'}</Text>
-        </FocusCard>
-        <FocusCard>
-          <Body muted>Device Key</Body>
-          <Text style={{ color: colors.textPrimary, fontSize: 56, fontWeight: '700' }}>{device?.key ?? '—'}</Text>
-        </FocusCard>
-        <Body>
-          Portal: <Text style={styles.brand}>{ACTIVATION_URL}</Text>
-        </Body>
-        <Body>Status: {statusText}</Body>
-      </View>
-      <View style={{ alignItems: 'center' }}>
-        {device && (
-          <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 12 }}>
-            <QRCode value={`${ACTIVATION_URL}?mac=${encodeURIComponent(device.mac)}`} size={300} />
-          </View>
-        )}
-        <Body muted>Escaneie para ativar</Body>
-      </View>
-    </View>
-  );
-}
-
-function HomeView({
-  playlistName,
-  onLive,
-  onSettings,
-}: {
-  playlistName: string;
-  onLive(): void;
-  onSettings(): void;
-}) {
-  const favCount = useStore(store, (s) => s.favorites.length);
-  const tile = { width: 420, height: 220, justifyContent: 'flex-end' as const };
-  return (
-    <View style={styles.screen}>
-      <View style={styles.row}>
-        <Logo height={60} />
-        <Body muted>{playlistName}</Body>
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 24, marginTop: 48 }}>
-        <FocusCard autoFocus onPress={onLive} style={tile}>
-          <Title>TV ao Vivo</Title>
-          <Body muted>Canais e guia de programação</Body>
-        </FocusCard>
-        <FocusCard onPress={onLive} style={tile}>
-          <Title>Favoritos</Title>
-          <Body muted>{favCount} marcado(s)</Body>
-        </FocusCard>
-        <FocusCard style={tile}>
-          <Title>Filmes</Title>
-          <Body muted>Pendente nesta versão</Body>
-        </FocusCard>
-        <FocusCard style={tile}>
-          <Title>Séries</Title>
-          <Body muted>Pendente nesta versão</Body>
-        </FocusCard>
-        <FocusCard onPress={onSettings} style={tile}>
-          <Title>Configurações</Title>
-          <Body muted>Aparelho e reprodução</Body>
-        </FocusCard>
-      </View>
-    </View>
-  );
-}
-
-function LiveView({ channels, onPlay }: { channels: M3uChannel[]; onPlay: (index: number) => void }) {
-  const [focusedIndex, setFocusedIndex] = useState(0);
-  const favorites = useStore(store, (s) => s.favorites);
-  const current = channels[focusedIndex];
-  const now = current ? currentAndNext(NO_EPG, current.tvgId ?? current.id, Date.now()) : null;
-
-  return (
-    <View style={[styles.screen, { flexDirection: 'row', gap: 24, padding: 32 }]}>
-      <View style={{ flex: 1 }}>
-        <FlashList
-          data={channels}
-          keyExtractor={(c) => c.id}
-          estimatedItemSize={92}
-          renderItem={({ item, index }) => (
-            <FocusCard
-              autoFocus={index === 0}
-              selected={favorites.includes(item.id)}
-              onPress={() => onPlay(index)}
-              onFocus={() => setFocusedIndex(index)}
-              style={{ marginBottom: 8 }}
-            >
-              <Text style={{ color: colors.textPrimary, fontSize: 28 }}>
-                {index + 1}. {item.name}
-              </Text>
-            </FocusCard>
-          )}
+  let screen;
+  const paged = isPagedCatalog(session.playlist?.id);
+  switch (route.name) {
+    case 'activation':
+      screen = <Activation />;
+      break;
+    case 'playlists':
+      screen = <Playlists />;
+      break;
+    case 'addPlaylist':
+      screen = <AddPlaylist />;
+      break;
+    case 'home':
+      screen = paged ? <CatalogHome /> : <Home />;
+      break;
+    case 'live':
+      screen = <Live category={route.category} />;
+      break;
+    case 'movies':
+      screen = paged ? <CatalogBrowser kind="movies" category={route.category} /> : <Movies category={route.category} />;
+      break;
+    case 'series':
+      screen = paged ? <CatalogBrowser kind="series" category={route.category} /> : <Series category={route.category} />;
+      break;
+    case 'seriesDetail':
+      screen = paged ? <CatalogSeriesDetail seriesId={route.seriesId} /> : <SeriesDetail seriesId={route.seriesId} />;
+      break;
+    case 'settings':
+      screen = <Settings />;
+      break;
+    case 'about':
+      screen = <About />;
+      break;
+    case 'player': {
+      const channels = route.channels ?? [];
+      const index = route.index ?? 0;
+      const channel = route.isLive ? channels[index] : undefined;
+      const swap = (i: number) => replace({ ...route, index: i, url: channels[i]?.url ?? route.url, title: channels[i]?.name ?? route.title });
+      screen = (
+        <Player
+          key={route.isLive ? 'live' : route.url}
+          url={route.url}
+          sources={route.sources}
+          title={route.title}
+          isLive={route.isLive}
+          id={route.id}
+          {...(channel
+            ? {
+                channelNumber: index + 1,
+                total: channels.length,
+                onChannel: (delta: number) => {
+                  if (channels.length === 0) return;
+                  swap((index + delta + channels.length) % channels.length);
+                },
+                onChannelNumber: (n: number) => {
+                  if (n >= 1 && n <= channels.length) swap(n - 1);
+                },
+                epgTitle: currentAndNext(session.epg, channel.epgId ?? channel.id, Date.now()).current?.title,
+              }
+            : {})}
+          onExit={back}
+          onTestPlayback={route.id === PLAYBACK_TEST_ID ? undefined : () => replace({ name: 'player', url: PLAYBACK_TEST_URL, title: 'Teste de reprodução · Big Buck Bunny', id: PLAYBACK_TEST_ID, isLive: false })}
         />
-      </View>
-      <View style={[styles.card, { width: 560 }]}>
-        <Title>{current?.name ?? 'Nenhum canal'}</Title>
-        <Body muted>{current?.group}</Body>
-        <Body>{now?.current?.title ?? 'Sem informação de guia (EPG)'}</Body>
-        {now?.next && <Body muted>Próximo: {now.next.title}</Body>}
-        <FocusCard onPress={() => onPlay(focusedIndex)} style={{ marginTop: 16 }}>
-          <Body>▶ Assistir</Body>
-        </FocusCard>
-        <FocusCard onPress={() => current && store.getState().toggleFavorite(current.id)} style={{ marginTop: 12 }}>
-          <Body>{current && favorites.includes(current.id) ? '★ Remover dos favoritos' : '☆ Favoritar'}</Body>
-        </FocusCard>
-      </View>
-    </View>
-  );
-}
-
-function PlayerView({
-  channel,
-  index,
-  total,
-  onChannel,
-}: {
-  channel: M3uChannel;
-  index: number;
-  total: number;
-  onChannel(delta: number): void;
-}) {
-  const [attempt, setAttempt] = useState(0);
-  const [failed, setFailed] = useState(false);
-  const [showInfo, setShowInfo] = useState(true);
-  const retries = useRef(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // Reinicia contadores quando o canal muda
-  useEffect(() => {
-    retries.current = 0;
-    setFailed(false);
-    setAttempt(0);
-  }, [channel.id]);
-
-  useEffect(() => {
-    setShowInfo(true);
-    const t = setTimeout(() => setShowInfo(false), 5000);
-    return () => clearTimeout(t);
-  }, [channel.id, attempt]);
-
-  useEffect(
-    () => () => {
-      if (retryTimer.current !== undefined) clearTimeout(retryTimer.current);
-    },
-    [],
-  );
-
-  // Reconexão com backoff: 1s, 2s, 4s; depois mostra erro
-  const onError = useCallback((_e: OnVideoErrorData) => {
-    if (retries.current >= MAX_RECONNECT_ATTEMPTS) {
-      setFailed(true);
-      return;
+      );
+      break;
     }
-    const delay = 1000 * 2 ** retries.current;
-    retries.current += 1;
-    retryTimer.current = setTimeout(() => setAttempt((a) => a + 1), delay);
-  }, []);
-
-  useEffect(() => {
-    // Os tipos do react-native-tvos não expõem o construtor de TVEventHandler; o cast isola isso aqui
-    const TVEventHandlerClass = TVEventHandler as unknown as new () => {
-      enable(cmp: unknown, cb: (cmp: unknown, evt: { eventType?: string }) => void): void;
-      disable(): void;
-    };
-    const handler = new TVEventHandlerClass();
-    handler.enable(undefined, (_cmp, evt) => {
-      if (evt.eventType === 'up') onChannel(1);
-      if (evt.eventType === 'down') onChannel(-1);
-    });
-    return () => handler.disable();
-  }, [onChannel]);
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#000' }}>
-      {!failed && (
-        <Video
-          key={`${channel.id}-${attempt}`}
-          source={{ uri: channel.url }}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-          resizeMode="contain"
-          onError={onError}
-          bufferConfig={{
-            minBufferMs: 2000,
-            maxBufferMs: 15000,
-            bufferForPlaybackMs: 1000,
-            bufferForPlaybackAfterRebufferMs: 2000,
-          }}
-        />
-      )}
-      {failed && (
-        <View style={[styles.screen, { justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)' }]}>
-          <Title>Não foi possível reproduzir</Title>
-          <Body muted>Verifique a conexão e tente outro canal.</Body>
-        </View>
-      )}
-      {showInfo && (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 32, backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <Text style={[styles.brand, { fontSize: 24 }]}>
-            AO VIVO · {index + 1}/{total}
-          </Text>
-          <Title>{channel.name}</Title>
-          <Body muted>CH+ / CH- (cima/baixo) para trocar canal · Voltar para sair</Body>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function SettingsView({ device, onReload }: { device: DeviceIdentity | null; onReload(): void }) {
-  const blocked = useStore(store, (s) => s.blockedCategories);
-  return (
-    <ScrollView style={styles.screen}>
-      <Title>Configurações</Title>
-      <FocusCard autoFocus style={{ marginBottom: 16 }}>
-        <Body muted>MAC</Body>
-        <Body>{device?.mac ?? '—'}</Body>
-        <Body muted>Device Key</Body>
-        <Body>{device?.key ?? '—'}</Body>
-      </FocusCard>
-      <FocusCard onPress={onReload} style={{ marginBottom: 16 }}>
-        <Body>Recarregar playlist</Body>
-      </FocusCard>
-      <FocusCard onPress={() => store.setState({ history: [], continueWatching: {} })} style={{ marginBottom: 16 }}>
-        <Body>Limpar histórico e cache</Body>
-      </FocusCard>
-      <Body muted>Categorias bloqueadas: {blocked.length}</Body>
-    </ScrollView>
+    <AppContext.Provider value={value}>
+      <StatusBar style="light" hidden />
+      {/* Telas em 1920x1080 virtuais, reduzidas por igual ao tamanho real do aparelho */}
+      <ScaledCanvas>
+        {/* Uma tela que quebra mostra uma saída em vez de tela preta; nova tela, novo boundary */}
+        <ErrorBoundary
+          key={`${stack.length}:${route.name}`}
+          onRecover={() => reset(session.playlist ? { name: 'home' } : INITIAL_ROUTE)}
+        >
+          {screen}
+        </ErrorBoundary>
+      </ScaledCanvas>
+    </AppContext.Provider>
   );
 }

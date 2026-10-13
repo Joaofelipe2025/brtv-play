@@ -9,6 +9,8 @@ export default defineConfig({
     // webOS 5 (2020) roda Chromium 68: piso de compatibilidade do app
     target: 'chrome68',
     cssTarget: 'chrome68',
+    // O bundle vai dentro do .ipk e é lido do disco da TV, não baixado pela rede
+    chunkSizeWarningLimit: 1500,
     outDir: 'dist',
     emptyOutDir: true,
   },

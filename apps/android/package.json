@@ -11,13 +11,15 @@
   "dependencies": {
     "@brtv/core": "workspace:*",
     "@expo-google-fonts/poppins": "^0.2.3",
-    "@react-native-async-storage/async-storage": "^2.1.0",
-    "@shopify/flash-list": "^1.7.3",
+    "@react-native-async-storage/async-storage": "~1.23.1",
+    "@shopify/flash-list": "1.7.3",
     "expo": "~52.0.0",
+    "expo-build-properties": "~0.13.3",
     "expo-font": "~13.0.4",
     "expo-status-bar": "~2.0.0",
+    "expo-updates": "~0.27.5",
     "react": "18.3.1",
-    "react-native": "npm:react-native-tvos@0.76.6-0",
+    "react-native": "npm:react-native-tvos@0.76.9-0",
     "react-native-qrcode-svg": "^6.3.11",
     "react-native-svg": "15.8.0",
     "react-native-video": "^6.7.0",
@@ -28,6 +30,13 @@
     "typescript": "^5.6.0"
   },
   "overrides": {
-    "react-native": "npm:react-native-tvos@0.76.6-0"
+    "react-native": "npm:react-native-tvos@0.76.9-0"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "react-native"
+      ]
+    }
   }
 }

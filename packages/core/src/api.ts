@@ -1,3 +1,5 @@
+import { DEMO_M3U } from './demo';
+
 /**
  * Contrato entre os apps e o servidor. Nesta fase só existe o mock.
  * Para trocar por Supabase, implemente BackendService e injete a nova instância.
@@ -10,7 +12,9 @@ export interface M3uPlaylist {
   name: string;
   kind: 'm3u';
   /** Conteúdo bruto do arquivo M3U/M3U8. */
-  content: string;
+  content?: string;
+  /** Link para baixar o arquivo M3U/M3U8. Usado quando não há `content`. Pelo menos um dos dois deve existir. */
+  url?: string;
 }
 
 export interface XtreamPlaylist {
@@ -46,30 +50,8 @@ export function daysLeft(expiresAt: string, now: number = Date.now()): number {
   return Math.max(0, Math.ceil(ms / 86_400_000));
 }
 
-/**
- * Playlist de demonstração: só streams HLS públicos de teste da Mux.
- * Nenhum conteúdo comercial. Os grupos exercitam a classificação ao vivo / filmes / séries.
- */
-export const DEMO_M3U = `#EXTM3U
-#EXTINF:-1 tvg-id="demo.canal1" tvg-name="Canal Demo 1" group-title="Demonstração",Canal Demo 1
-https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
-#EXTINF:-1 tvg-id="demo.canal2" tvg-name="Canal Demo 2" group-title="Demonstração",Canal Demo 2
-https://test-streams.mux.dev/test_001/stream.m3u8
-#EXTINF:-1 tvg-id="demo.canal3" tvg-name="Canal Demo 3" group-title="Testes de sinal",Canal Demo 3
-https://test-streams.mux.dev/pts_shift/master.m3u8
-#EXTINF:-1 tvg-name="Tears of Steel" group-title="Filmes | Demonstração",Tears of Steel
-https://test-streams.mux.dev/tos_ismc/main.m3u8
-#EXTINF:-1 tvg-name="Big Buck Bunny" group-title="Filmes | Demonstração",Big Buck Bunny
-https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
-#EXTINF:-1 tvg-name="Sinal de Teste" group-title="Filmes | Testes",Sinal de Teste
-https://test-streams.mux.dev/test_001/stream.m3u8
-#EXTINF:-1 tvg-name="Série Demo S01 E01" group-title="Séries | Demonstração",Série Demo S01 E01 Piloto
-https://test-streams.mux.dev/test_001/stream.m3u8
-#EXTINF:-1 tvg-name="Série Demo S01 E02" group-title="Séries | Demonstração",Série Demo S01 E02 O Sinal
-https://test-streams.mux.dev/pts_shift/master.m3u8
-#EXTINF:-1 tvg-name="Série Demo S02 E01" group-title="Séries | Demonstração",Série Demo S02 E01 Recomeço
-https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
-`;
+/** Playlist de demonstração (ver demo.ts). */
+export { DEMO_M3U };
 
 export class MockBackendService implements BackendService {
   private readonly trialStarts = new Map<string, number>();

@@ -33,6 +33,7 @@ export function PinGate({ category, onUnlock, onCancel }: PinGateProps) {
       <p className="muted">Digite o PIN parental para abrir “{category}”.</p>
       <input
         ref={inputRef}
+        data-autofocus
         className="focusable pin num"
         type="password"
         inputMode="numeric"

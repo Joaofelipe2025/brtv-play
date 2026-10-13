@@ -1,5 +1,7 @@
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
+import { detectStreamKind, type StreamKind } from '@brtv/core';
+import type { VideoEngine } from './platform';
 
 export interface Track {
   id: number;
@@ -20,6 +22,8 @@ export interface PlaybackHandle {
 
 interface PlaybackOptions {
   muted?: boolean;
+  /** Motor de vídeo escolhido nas Configurações (padrão: 'auto'). */
+  engine?: VideoEngine;
   onError(message: string): void;
   /** Chamado quando as faixas de áudio/legenda ficam disponíveis ou mudam. */
   onTracks?(): void;
@@ -50,20 +54,46 @@ const noAudio = {
   setAudio: (): void => undefined,
 };
 
+export type ResolvedEngine = 'native' | 'hlsjs' | 'mpegts' | 'progressive';
+
+/** True quando rodando no navegador de uma TV LG webOS. */
+export function isWebOS(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (typeof (window as { PalmSystem?: unknown }).PalmSystem !== 'undefined') return true;
+  return typeof navigator !== 'undefined' && /Web0S/i.test(navigator.userAgent);
+}
+
+/** Decide o pipeline de reprodução (pura: o ambiente entra como argumento). */
+export function resolveEngine(
+  kind: StreamKind,
+  engine: VideoEngine,
+  env: { webOS: boolean; hlsSupported: boolean } = { webOS: isWebOS(), hlsSupported: Hls.isSupported() },
+): ResolvedEngine {
+  if (kind === 'ts') return 'mpegts';
+  if (kind === 'progressive') return 'progressive';
+  if (engine === 'native') return 'native';
+  if (engine === 'hlsjs') return 'hlsjs';
+  if (env.webOS) return 'native';
+  return env.hlsSupported ? 'hlsjs' : 'native';
+}
+
 /**
- * Inicia a reprodução. Ordem de escolha:
+ * Inicia a reprodução. O pipeline vem de `resolveEngine`:
  *  - TS (.ts): mpegts.js
- *  - HLS com suporte nativo (webOS): <video> direto
- *  - HLS sem suporte nativo: hls.js
+ *  - arquivo progressivo (mp4/mkv...): <video src>
+ *  - HLS/desconhecido: nativo (webOS ou escolha do usuário) ou hls.js
  */
 export function startPlayback(video: HTMLVideoElement, url: string, opts: PlaybackOptions): PlaybackHandle {
-  const isTs = /\.ts(\?|$)/i.test(url);
+  let pipeline = resolveEngine(detectStreamKind(url), opts.engine ?? 'auto');
   video.muted = opts.muted ?? false;
   const play = (): void => {
     void video.play().catch(() => undefined);
   };
 
-  if (isTs && mpegts.getFeatureList().mseLivePlayback) {
+  if (pipeline === 'mpegts' && !mpegts.getFeatureList().mseLivePlayback) pipeline = 'native';
+  if (pipeline === 'hlsjs' && !Hls.isSupported()) pipeline = 'native';
+
+  if (pipeline === 'mpegts') {
     const player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url });
     player.attachMediaElement(video);
     player.on(mpegts.Events.ERROR, (_type, _detail, info) => {
@@ -83,29 +113,30 @@ export function startPlayback(video: HTMLVideoElement, url: string, opts: Playba
     };
   }
 
-  if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    const onVideoError = (): void => opts.onError('Erro de reprodução nativa');
-    const onTrack = (): void => opts.onTracks?.();
-    video.addEventListener('error', onVideoError);
-    video.textTracks.addEventListener('addtrack', onTrack);
-    video.src = url;
-    play();
-    return {
-      ...noAudio,
-      ...nativeText(video),
-      destroy() {
-        video.removeEventListener('error', onVideoError);
-        video.textTracks.removeEventListener('addtrack', onTrack);
-        video.removeAttribute('src');
-        video.load();
-      },
-    };
-  }
-
-  if (Hls.isSupported()) {
-    const hls = new Hls({ maxBufferLength: 20, enableWorker: true });
+  if (pipeline === 'hlsjs') {
+    const hls = new Hls({
+      maxBufferLength: 30,
+      liveSyncDurationCount: 3,
+      enableWorker: true,
+      lowLatencyMode: false,
+    });
+    let networkRetried = false;
+    let mediaRetried = false;
     hls.on(Hls.Events.ERROR, (_event, data) => {
-      if (data.fatal) opts.onError(data.details);
+      if (!data.fatal) return;
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !networkRetried) {
+        networkRetried = true;
+        // Falhas ao carregar o manifest não se recuperam aqui: o detector de travamento e o
+        // reconector da tela cuidam delas
+        hls.startLoad();
+        return;
+      }
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !mediaRetried) {
+        mediaRetried = true;
+        hls.recoverMediaError();
+        return;
+      }
+      opts.onError(data.details);
     });
     const notify = (): void => opts.onTracks?.();
     hls.on(Hls.Events.MANIFEST_PARSED, notify);
@@ -132,13 +163,21 @@ export function startPlayback(video: HTMLVideoElement, url: string, opts: Playba
     };
   }
 
-  opts.onError('Formato não suportado neste aparelho');
-  return { ...noAudio, ...nativeText(video), destroy() {} };
-}
-
-export const MAX_RECONNECT_ATTEMPTS = 3;
-
-/** Backoff exponencial: 1s, 2s, 4s. */
-export function reconnectDelayMs(attempt: number): number {
-  return 1000 * 2 ** attempt;
+  // 'native' e 'progressive': <video src> direto.
+  const onVideoError = (): void => opts.onError('Erro de reprodução nativa');
+  const onTrack = (): void => opts.onTracks?.();
+  video.addEventListener('error', onVideoError);
+  video.textTracks.addEventListener('addtrack', onTrack);
+  video.src = url;
+  play();
+  return {
+    ...noAudio,
+    ...nativeText(video),
+    destroy() {
+      video.removeEventListener('error', onVideoError);
+      video.textTracks.removeEventListener('addtrack', onTrack);
+      video.removeAttribute('src');
+      video.load();
+    },
+  };
 }

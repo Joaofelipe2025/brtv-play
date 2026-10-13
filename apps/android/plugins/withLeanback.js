@@ -2,7 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { withAndroidManifest, withDangerousMod } = require('expo/config-plugins');
 
-const LEANBACK_FEATURE = 'android.software.leanback';
+/** Recursos opcionais: o app roda em TV (D-pad, sem toque) e em celular. */
+const OPTIONAL_FEATURES = [
+  'android.software.leanback',
+  'android.hardware.touchscreen',
+  'android.hardware.faketouch',
+];
 
 /** Copia assets/tv_banner.png (gerado por `pnpm brand:assets`) para res/drawable. */
 function withTvBanner(config) {
@@ -22,7 +27,7 @@ function withTvBanner(config) {
 }
 
 /**
- * Android TV: declara leanback como NÃO obrigatório (o app também roda em celular),
+ * Android TV: declara leanback, touchscreen e faketouch como NÃO obrigatórios (o app também roda em celular),
  * adiciona o banner da TV e o intent LEANBACK_LAUNCHER na atividade principal.
  * O banner (320x180) é copiado para res/drawable por withTvBanner.
  */
@@ -32,9 +37,11 @@ module.exports = function withLeanback(config) {
     const manifest = cfg.modResults.manifest;
 
     const features = (manifest['uses-feature'] ?? []).filter(
-      (f) => f.$?.['android:name'] !== LEANBACK_FEATURE,
+      (f) => !OPTIONAL_FEATURES.includes(f.$?.['android:name']),
     );
-    features.push({ $: { 'android:name': LEANBACK_FEATURE, 'android:required': 'false' } });
+    for (const name of OPTIONAL_FEATURES) {
+      features.push({ $: { 'android:name': name, 'android:required': 'false' } });
+    }
     manifest['uses-feature'] = features;
 
     const application = manifest.application?.[0];

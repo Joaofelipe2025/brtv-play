@@ -22,8 +22,30 @@
       }
     },
     "plugins": [
-      "./plugins/withLeanback.js"
+      "./plugins/withLeanback.js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "owner": "brtv-play",
+    "extra": {
+      "eas": {
+        "projectId": "cf820c71-a13b-4184-8a70-661eea62b83a"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/cf820c71-a13b-4184-8a70-661eea62b83a",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }
