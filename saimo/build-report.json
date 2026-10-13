@@ -1,0 +1,16 @@
+{
+  "source": "gabrielsaimo/SaimoPlayer",
+  "rejectedSources": 0,
+  "duplicateSources": 17792,
+  "sources": 1062536,
+  "multiSourceMovies": 18237,
+  "movies": 27735,
+  "series": 13830,
+  "episodes": 444013,
+  "version": "v3-ff4c43c7ccc06588",
+  "fileCount": 75731,
+  "totalBytes": 220617758,
+  "maxPageBytes": 37743,
+  "firstPageBytes": 4969,
+  "manifestBytes": 499
+}
