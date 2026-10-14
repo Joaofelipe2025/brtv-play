@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, View, useTVEventHandler } from 'react-native';
+import { ActivityIndicator, Animated, BackHandler, View, useTVEventHandler } from 'react-native';
 import Video, {
   SelectedTrackType,
   ViewType,
@@ -53,6 +53,7 @@ export interface PlayerProps {
   onExit(): void;
   onTestPlayback?(): void;
   epgTitle?: string;
+  handoff?: { position: number; paused: boolean };
 }
 
 type Status = 'loading' | 'playing' | 'reconnecting' | 'error';
@@ -85,6 +86,7 @@ const DISABLED_TRACK: SelectedTrack = { type: SelectedTrackType.DISABLED };
 
 /** Mantém a identidade do título; cada origem recebe um player nativo novo. */
 export function Player(props: PlayerProps) {
+  const handoff = useRef({ position: 0, paused: false });
   const round = useMemo(() => createSourceRound(props.url, props.isLive ? undefined : props.sources), [props.url, props.sources, props.isLive]);
   const [, render] = useState(0);
   const current = round.current();
@@ -95,6 +97,7 @@ export function Player(props: PlayerProps) {
     return true;
   };
   return <PlaybackEngine {...props}
+    handoff={handoff.current}
     key={`${props.id ?? props.url}-${current.generation}`}
     url={current.source.url}
     sourceLabel={`Fonte ${current.index + 1} de ${round.sources.length} · ${current.source.label}`}
@@ -118,6 +121,7 @@ function PlaybackEngine({
   sourceLabel,
   onNextSource,
   onRestartSources,
+  handoff,
 }: PlayerProps) {
   const videoRef = useRef<VideoRef>(null);
   const multipleSources = onNextSource !== undefined;
@@ -136,6 +140,10 @@ function PlaybackEngine({
   const [retryNo, setRetryNo] = useState(0);
   // O vídeo começa tocando; só o usuário altera isto, e o rótulo deriva dele
   const [paused, setPaused] = useState(false);
+  const [confirmedPaused, setConfirmedPaused] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const feedbackOpacity = useRef(new Animated.Value(0)).current;
   const [osd, setOsd] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
@@ -170,7 +178,9 @@ function PlaybackEngine({
   const showOsd = useCallback(() => {
     if (osdTimer.current !== undefined) clearTimeout(osdTimer.current);
     setOsd(true);
-    osdTimer.current = setTimeout(() => setOsd(false), OSD_MS);
+    osdTimer.current = setTimeout(() => {
+      if (live.current.status === 'playing' && !live.current.paused) setOsd(false);
+    }, OSD_MS);
   }, []);
 
   const hideOsd = useCallback(() => {
@@ -186,7 +196,7 @@ function PlaybackEngine({
     stall.reset();
     channelInput.clear();
     lastTime.current = 0;
-    resumeTime.current = 0;
+    resumeTime.current = handoff?.position ?? 0;
     resumeTarget.current = null;
     retired.current = false;
     firstProgress.current = null;
@@ -194,7 +204,9 @@ function PlaybackEngine({
     setFailure(null);
     setAttempt(0);
     setRetryNo(0);
-    setPaused(false);
+    setPaused(handoff?.paused ?? false);
+    setConfirmedPaused(false);
+    setBuffering(false);
     setAudio([]);
     setText([]);
     setAudioSel(0);
@@ -202,7 +214,26 @@ function PlaybackEngine({
     setTime({ current: 0, duration: 0 });
     setTyped('');
     showOsd();
-  }, [url, reconnector, stall, channelInput, showOsd]);
+  }, [url, reconnector, stall, channelInput, showOsd, handoff]);
+
+  useEffect(() => {
+    if (status === 'playing') showOsd();
+  }, [status, paused, showOsd]);
+
+  const previousPause = useRef(false);
+  useEffect(() => {
+    if (confirmedPaused === previousPause.current) return;
+    previousPause.current = confirmedPaused;
+    setFeedback(confirmedPaused ? 'Ⅱ Pausado' : '▶ Reproduzindo');
+    feedbackOpacity.stopAnimation(); feedbackOpacity.setValue(0);
+    const animation = Animated.sequence([
+      Animated.timing(feedbackOpacity, { toValue: 1, duration: 130, useNativeDriver: true }),
+      Animated.delay(650),
+      Animated.timing(feedbackOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]);
+    animation.start(({ finished }) => { if (finished) setFeedback(null); });
+    return () => animation.stop();
+  }, [confirmedPaused, feedbackOpacity]);
 
   useEffect(
     () => () => {
@@ -235,9 +266,10 @@ function PlaybackEngine({
   const nextSource = useCallback(() => {
     if (retired.current) return true;
     if (id && resumeTime.current > 0) store.getState().setPosition(id, resumeTime.current);
+    if (handoff) { handoff.position = resumeTime.current; handoff.paused = live.current.paused; }
     if (onNextSource?.()) { retired.current = true; return true; }
     return false;
-  }, [id, onNextSource]);
+  }, [id, onNextSource, handoff]);
 
   useEffect(() => { if (issue !== null && multipleSources) nextSource(); }, [issue, multipleSources, nextSource]);
 
@@ -350,8 +382,8 @@ function PlaybackEngine({
         }
         case 'up':
         case 'down':
-          // Ao vivo, cima/baixo sempre trocam de canal (os botões do OSD ficam numa linha, esquerda/direita)
-          if (cur.isLive) cur.onChannel?.(action === 'up' ? 1 : -1);
+          // Com controles visíveis o D-pad pertence à navegação dos botões.
+          if (cur.isLive && !cur.osd) cur.onChannel?.(action === 'up' ? 1 : -1);
           else show();
           return;
         case 'left':
@@ -397,10 +429,11 @@ function PlaybackEngine({
     (e: OnLoadData) => {
       // onLoad vem antes de qualquer quadro: só guarda a duração; "tocando" é confirmado abaixo
       setTime((t) => ({ ...t, duration: e.duration }));
+      if (live.current.paused) { setStatus('playing'); setConfirmedPaused(true); }
       // VOD: retoma a posição salva (nem nos primeiros segundos, nem colada no fim)
       if (isLive || !id) return;
       const saved = resumeTime.current || store.getState().continueWatching[id] || 0;
-      if (saved > 5 && saved < e.duration - 10) {
+      if (saved > 0 && (e.duration <= 0 || saved < e.duration - 1)) {
         resumeTime.current = saved;
         resumeTarget.current = saved;
         videoRef.current?.seek(saved);
@@ -493,7 +526,7 @@ function PlaybackEngine({
   const audioLabel = trackLabel(audio[audioSel], 'Padrão');
   const textLabel = textSel >= 0 ? trackLabel(text[textSel], 'Ligadas') : 'Desligadas';
   const noText = text.length === 0;
-  const busy = status === 'loading' || status === 'reconnecting';
+  const busy = status === 'loading' || status === 'reconnecting' || buffering;
   const progress = time.duration > 0 ? Math.min(1, time.current / time.duration) : 0;
 
   return (
@@ -508,6 +541,12 @@ function PlaybackEngine({
           style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           resizeMode="contain"
           paused={paused}
+          onBuffer={(e) => setBuffering(e.isBuffering)}
+          onPlaybackStateChanged={(e) => {
+            if (retired.current) return;
+            if (e.isPlaying) { setConfirmedPaused(false); setBuffering(false); markPlaying(); }
+            else if (live.current.paused && !e.isSeeking) setConfirmedPaused(true);
+          }}
           selectedAudioTrack={selectedAudio}
           selectedTextTrack={selectedText}
           onLoad={onLoad}
@@ -525,6 +564,7 @@ function PlaybackEngine({
         >
           {sourceLabel && <Body>{sourceLabel}</Body>}
           <ActivityIndicator size="large" color={colors.accent} />
+          <Body>{status === 'loading' ? (sourceLabel && handoff ? 'Trocando fonte · Conectando…' : 'Conectando…') : buffering && status === 'playing' ? 'Carregando vídeo…' : 'Reconectando…'}</Body>
           {status === 'reconnecting' && (
             <Body>
               Reconectando, tentativa {Math.max(1, retryNo)} de {maxAttempts}
@@ -533,6 +573,9 @@ function PlaybackEngine({
           {failure && <Body>{failure.code}: {failure.message}</Body>}
         </View>
       )}
+
+      {confirmedPaused && status === 'playing' && <View pointerEvents="none" style={{ position: 'absolute', top: 40, right: 40, padding: 16, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.85)' }}><Body>Ⅱ Reprodução pausada</Body></View>}
+      {feedback !== null && <Animated.View pointerEvents="none" style={{ opacity: feedbackOpacity, position: 'absolute', top: '38%', alignSelf: 'center', padding: 32, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.85)' }}><Title>{feedback}</Title></Animated.View>}
 
       {status === 'error' && (
         <View style={[styles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -601,10 +644,11 @@ function PlaybackEngine({
               </View>
             </View>
           )}
-          {multipleSources && <FocusCard onPress={() => { if (!nextSource()) showNotice('Esta é a última fonte disponível'); }}><Body>Trocar fonte</Body></FocusCard>}
           <View style={{ flexDirection: 'row', gap: 16, marginTop: 16 }}>
+            {multipleSources && <FocusCard onFocus={showOsd} onPress={() => { if (!nextSource()) showNotice('Esta é a última fonte disponível'); }}><Body>Trocar fonte</Body></FocusCard>}
             <FocusCard
               autoFocus
+              onFocus={showOsd}
               onPress={() => {
                 togglePause();
                 showOsd();
@@ -613,6 +657,7 @@ function PlaybackEngine({
               <Body>{paused ? 'Continuar' : 'Pausar'}</Body>
             </FocusCard>
             <FocusCard
+              onFocus={showOsd}
               onPress={() => {
                 cycleAudio();
                 showOsd();
@@ -621,6 +666,7 @@ function PlaybackEngine({
               <Body>Áudio: {audioLabel}</Body>
             </FocusCard>
             <FocusCard
+              onFocus={showOsd}
               onPress={() => {
                 cycleText();
                 showOsd();

@@ -15,7 +15,7 @@ export function describePlaybackFailure(event: unknown): PlaybackFailure {
   const record = (v: unknown): Record<string, unknown> =>
     typeof v === 'object' && v !== null ? v as Record<string, unknown> : {};
   const error = record(record(event).error);
-  const rawCode = typeof error.errorCode === 'string' ? error.errorCode : '';
+  const rawCode = typeof error.errorCode === 'string' || typeof error.errorCode === 'number' ? String(error.errorCode) : '';
   // react-native-video prefixa os códigos Media3 com "2" (2004 -> 22004).
   const numeric = /^2\d{4}$/.test(rawCode) ? Number(rawCode.slice(1)) : /^\d{4}$/.test(rawCode) ? Number(rawCode) : 0;
   const text = [error.errorString, error.errorException, error.errorStackTrace]

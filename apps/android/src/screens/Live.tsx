@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { TextInput, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useStore } from 'zustand';
 import {
@@ -28,6 +28,7 @@ const LOGO_SIZE = 92;
 
 /** Categoria virtual com os canais brasileiros (guardada na rota como `category`, como FAVORITES). */
 const BRASIL = '__brasil__';
+const liveStates = new Map<string, { query: string; selectedId: string | null; offset: number }>();
 
 interface CategoryEntry {
   key: string;
@@ -39,6 +40,13 @@ interface CategoryEntry {
 export function Live({ category }: { category?: string }) {
   const { session, update, go, replace } = useApp();
   const favorites = useStore(store, (s) => s.favorites);
+  const stateKey = `${session.playlist?.id}:${category ?? ''}`;
+  const saved = liveStates.get(stateKey);
+  const [query, setQuery] = useState(saved?.query ?? '');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchRef = useRef<TextInput>(null);
+  const listRef = useRef<FlashList<LiveItem>>(null);
+  const scrollOffset = useRef(saved?.offset ?? 0);
   const blocked = useStore(store, (s) => s.blockedCategories);
   const live = useMemo(() => session.library?.live ?? [], [session.library]);
   const now = Date.now();
@@ -82,7 +90,11 @@ export function Live({ category }: { category?: string }) {
   // Categoria bloqueada vinda da rota (ex.: "Guia de TV" da Início): pede o PIN antes de mostrar
   const selectedLocked = selectedGroup !== null && isLocked(selectedGroup);
   const [pendingGroup, setPendingGroup] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(saved?.selectedId ?? null);
+  useEffect(() => {
+    liveStates.set(stateKey, { query, selectedId, offset: scrollOffset.current });
+    while (liveStates.size > 8) liveStates.delete(liveStates.keys().next().value!);
+  }, [stateKey, query, selectedId]);
   const gateGroup = pendingGroup ?? (selectedLocked ? selectedGroup : null);
 
   // A tela é reaproveitada quando a rota troca de categoria: um PIN pendente não sobrevive à troca
@@ -99,12 +111,13 @@ export function Live({ category }: { category?: string }) {
     [live, favorites, blocked, unlocked],
   );
 
-  const channels: LiveItem[] = useMemo(() => {
+  const groupChannels: LiveItem[] = useMemo(() => {
     if (selectedGroup === FAVORITES) return favoriteChannels;
     if (selectedGroup === BRASIL) return brazilChannels;
     if (!selectedGroup || selectedLocked) return [];
     return live.filter((c) => c.group === selectedGroup);
   }, [live, selectedGroup, selectedLocked, favoriteChannels, brazilChannels]);
+  const channels = useMemo(() => groupChannels.filter((c) => c.name.toLocaleLowerCase('pt-BR').includes(query.trim().toLocaleLowerCase('pt-BR'))), [groupChannels, query]);
 
   const preview = channels.find((c) => c.id === selectedId) ?? channels[0] ?? null;
   const previewEpg = preview ? currentAndNext(session.epg, preview.epgId ?? preview.id, now) : null;
@@ -139,19 +152,21 @@ export function Live({ category }: { category?: string }) {
     }
     setPendingGroup(null);
     setSelectedId(null);
+    scrollOffset.current = 0;
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
     // Guarda a categoria na rota: ao voltar do player, a lista é a mesma
     replace({ name: 'live', category: group });
   };
 
   const play = (channel: LiveItem) =>
-    go({
+    { liveStates.set(stateKey, { query, selectedId: channel.id, offset: scrollOffset.current }); go({
       name: 'player',
       url: channel.url,
       title: channel.name,
       isLive: true,
       channels,
       index: channels.indexOf(channel),
-    });
+    }); };
 
   const tab = selectedGroup === FAVORITES ? 'favorites' : 'live';
 
@@ -161,11 +176,11 @@ export function Live({ category }: { category?: string }) {
         <TopBar active={tab} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <Text style={{ color: colors.textPrimary, fontSize: 36, fontFamily: font.semibold }}>
-            {session.loading ? 'Carregando canais…' : 'Nenhum canal nesta lista'}
+            {session.loading ? 'Carregando canais…' : session.libraryError ? 'Falha ao carregar canais' : 'Nenhum canal nesta lista'}
           </Text>
           {!session.loading && (
             <Text style={{ color: colors.textSecondary, fontSize: 26 }}>
-              Confira a lista no portal ou recarregue em Configurações.
+              {session.libraryError ?? 'Confira a lista no portal ou recarregue em Configurações.'}
             </Text>
           )}
         </View>
@@ -178,6 +193,12 @@ export function Live({ category }: { category?: string }) {
   return (
     <View style={styles.screen}>
       <TopBar active={tab} />
+      <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center', marginBottom: 16 }}>
+        <FocusCard onPress={() => searchRef.current?.focus()}><Text style={{ color: colors.textPrimary, fontSize: 28 }}>Buscar canais</Text></FocusCard>
+        <TextInput ref={searchRef} value={query} onChangeText={setQuery} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} placeholder="Nome do canal" accessibilityLabel="Buscar canais" placeholderTextColor={colors.textSecondary} style={{ width: 440, padding: 16, fontSize: 28, color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 3, borderColor: searchFocused ? colors.white : 'transparent' }} />
+        <FocusCard onPress={() => { setQuery(''); chooseGroup(groups.find((g) => !isLocked(g.name))?.name ?? FAVORITES); }}><Text style={{ color: colors.textPrimary, fontSize: 28 }}>Limpar busca e filtros</Text></FocusCard>
+        <Text style={{ color: colors.textSecondary, fontSize: 26 }}>{selectedGroup === BRASIL ? 'Brasil' : selectedGroup === FAVORITES ? 'Favoritos' : selectedGroup} · {channels.length} canais</Text>
+      </View>
       {session.libraryNotice !== null && (
         <Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 24, marginBottom: 12 }}>
           {session.libraryNotice}
@@ -251,7 +272,7 @@ export function Live({ category }: { category?: string }) {
           ) : channels.length === 0 ? (
             <View style={{ marginTop: 80, alignItems: 'center', gap: 12 }}>
               <Text style={{ color: colors.textPrimary, fontSize: 40, fontFamily: font.semibold }}>
-                {selectedGroup === FAVORITES ? 'Nenhum favorito ainda' : 'Categoria vazia'}
+                {query.trim() ? 'Nenhum canal corresponde à busca nesta categoria' : selectedGroup === FAVORITES ? 'Nenhum favorito ainda' : 'Categoria vazia'}
               </Text>
               {selectedGroup === FAVORITES && (
                 <Text style={{ color: colors.textSecondary, fontSize: 30, textAlign: 'center' }}>
@@ -261,6 +282,9 @@ export function Live({ category }: { category?: string }) {
             </View>
           ) : (
             <FlashList
+              ref={listRef}
+              onLoad={() => listRef.current?.scrollToOffset({ offset: scrollOffset.current, animated: false })}
+              onScroll={(e) => { scrollOffset.current = e.nativeEvent.contentOffset.y; }}
               data={channels}
               extraData={{ selected: preview?.id, favorites, epg: session.epg }}
               estimatedItemSize={ROW_HEIGHT}
@@ -269,7 +293,7 @@ export function Live({ category }: { category?: string }) {
                 const epg = currentAndNext(session.epg, channel.epgId ?? channel.id, now).current;
                 return (
                   <FocusCard
-                    autoFocus={index === 0 && initialFocus.current}
+                    autoFocus={(saved?.selectedId ? channel.id === saved.selectedId : index === 0) && initialFocus.current}
                     selected={preview?.id === channel.id}
                     style={{ height: ROW_HEIGHT - 8, flexDirection: 'row', alignItems: 'center', gap: 20, paddingVertical: 8 }}
                     onFocus={() => {

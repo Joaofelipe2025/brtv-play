@@ -5,15 +5,17 @@ export const SAIMO_CATALOG_ID = 'saimo-vod-catalog';
 export const isPagedCatalog = (id: string | undefined): boolean => id === PAGED_CATALOG_ID || id === SAIMO_CATALOG_ID;
 export interface CatalogSource { url: string; label: string }
 export type CatalogKind = 'movies' | 'series';
+export type CatalogOrder = 'recent' | 'alphabetical';
 export interface CatalogGroup { id: string; name: string; count: number; pages: number }
 export interface CatalogManifest {
+  orders?: CatalogOrder[];
   schema: 1;
   version: string;
   pageSize: number;
   totals: { movies: number; series: number; episodes: number };
   categories: { movies: CatalogGroup[]; series: CatalogGroup[] };
 }
-export interface CatalogItem { id: string; name: string; group: string; poster?: string }
+export interface CatalogItem { id: string; name: string; group: string; poster?: string; addedAt?: number }
 export interface CatalogEpisode { id: string; title: string; season: number; episode: number; url: string; sources?: CatalogSource[] }
 export interface CatalogSeason { season: number; count: number; pages: number }
 export interface CatalogDetail extends CatalogItem { url?: string; sources?: CatalogSource[]; seasons?: CatalogSeason[] }
@@ -161,12 +163,13 @@ export class PagedCatalogClient {
     if (!/^[a-zA-Z0-9/_.-]+$/.test(path) || path.includes('..')) throw new Error('Caminho de catálogo inválido.');
     return `${s.baseUrl}/${s.manifest.version}/${path}`;
   }
-  async page(s: CatalogSnapshot, kind: CatalogKind, category: string, number: number): Promise<CatalogPage<CatalogItem>> {
+  async page(s: CatalogSnapshot, kind: CatalogKind, category: string, number: number, order: CatalogOrder = 'recent'): Promise<CatalogPage<CatalogItem>> {
     if (category !== 'all' && !s.manifest.categories[kind].some((g) => g.id === category)) throw new Error('Categoria inválida.');
     if (!count(number)) throw new Error('Página inválida.');
     const total = category === 'all' ? s.manifest.totals[kind] : s.manifest.categories[kind].find((g) => g.id === category)?.count ?? 0;
     if (number * 30 >= total) return { items: [], next: null };
-    return (await this.read(this.url(s, `${kind}/${category}/${number}.json`), pageOf(item))).value;
+    const prefix = order === 'alphabetical' && s.manifest.orders ? 'alphabetical/' : '';
+    return (await this.read(this.url(s, `${prefix}${kind}/${category}/${number}.json`), pageOf(item))).value;
   }
   async detail(s: CatalogSnapshot, itemId: string): Promise<CatalogDetail> {
     if (!id(itemId)) throw new Error('Título inválido.');
@@ -180,12 +183,12 @@ export class PagedCatalogClient {
   }
 
   /** Busca global por prefixos de palavras; examina no máximo seis páginas por rodada. */
-  async search(s: CatalogSnapshot, kind: CatalogKind, query: string, cursor: CatalogSearchCursor = { page: 0, offset: 0 }, excludedGroups: readonly string[] = []): Promise<{ items: CatalogItem[]; next: CatalogSearchCursor | null }> {
+  async search(s: CatalogSnapshot, kind: CatalogKind, query: string, cursor: CatalogSearchCursor = { page: 0, offset: 0 }, excludedGroups: readonly string[] = [], order: CatalogOrder = 'recent', category?: string): Promise<{ items: CatalogItem[]; next: CatalogSearchCursor | null }> {
     const tokens = catalogWords(query);
     const longest = [...tokens].sort((a, b) => b.length - a.length)[0];
     if (!longest || longest.length < 3) return { items: [], next: null };
     const bucket = catalogSearchBucket(longest);
-    const root = `search/${kind}/${bucket}`;
+    const root = `${order === 'alphabetical' && s.manifest.orders ? 'alphabetical/' : ''}search/${kind}/${bucket}`;
     const index = (await this.read(this.url(s, `${root}/index.json`), searchIndex)).value;
     const items: CatalogItem[] = [];
     let page = cursor.page; let offset = cursor.offset;
@@ -194,7 +197,7 @@ export class PagedCatalogClient {
       const result = (await this.read(this.url(s, `${root}/${page}.json`), pageOf(item))).value;
       for (let i = offset; i < result.items.length; i++) {
         const entry = result.items[i];
-        if (entry && !excludedGroups.includes(entry.group) && catalogMatches(entry.name, query)) items.push(entry);
+        if (entry && !excludedGroups.includes(entry.group) && (!category || entry.group === category) && catalogMatches(entry.name, query)) items.push(entry);
         if (items.length === 30) {
           const next = i + 1 < result.items.length ? { page, offset: i + 1 } : page + 1 < index.pages ? { page: page + 1, offset: 0 } : null;
           return { items, next };

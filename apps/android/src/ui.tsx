@@ -45,6 +45,8 @@ export function FocusCard({
   const [focused, setFocused] = useState(false);
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(selected) }}
       onPress={onPress}
       onFocus={() => {
         setFocused(true);
@@ -123,6 +125,7 @@ export const styles = StyleSheet.create({
   },
   selected: {
     backgroundColor: colors.surfaceElevated,
+    borderColor: colors.accent,
   },
   title: {
     color: colors.textPrimary,

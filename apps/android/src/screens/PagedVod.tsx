@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, ScrollView, TextInput, View } from 'react-native';
 import { useStore } from 'zustand';
 import {
   catalogWords, colors, formatClock, isGroupLocked,
-  type CatalogDetail, type CatalogEpisode, type CatalogItem, type CatalogKind, type CatalogSearchCursor,
+  type CatalogDetail, type CatalogEpisode, type CatalogItem, type CatalogKind, type CatalogOrder, type CatalogSearchCursor,
 } from '@brtv/core';
 import { catalogClient } from '../catalog';
 import { useApp } from '../navigation';
@@ -19,6 +19,14 @@ const EMPTY_ITEMS: never[] = [];
 const MAX_VISIBLE = 300;
 const foreground = { color: colors.textPrimary, fontSize: 25 };
 const fieldStyle = { color: colors.textPrimary, fontSize: 26, backgroundColor: colors.surface, borderRadius: 12, padding: 14, width: 370 };
+// Estado de navegação limitado: não é um cache do catálogo inteiro.
+const browserStates = new Map<string, { query: string; order: CatalogOrder; favorites: boolean; offset: number; focused: string | null }>();
+const pageStates = new Map<string, { items: Array<{ id: string }>; next: Cursor | null; block: number }>();
+function Skeletons() {
+  return <View accessibilityLabel="Carregando títulos" pointerEvents="none" style={{ flexDirection: 'row', gap: 12 }}>
+    {Array.from({ length: 6 }, (_, i) => <View key={i} style={{ width: 276, height: 420, borderRadius: 14, backgroundColor: colors.surfaceElevated }} />)}
+  </View>;
+}
 
 /** Quatro imagens em carga; itens fora da janela virtualizada liberam sua vaga. */
 let imageLoads = 0;
@@ -61,12 +69,14 @@ function CatalogPoster({ src, title }: { src?: string; title: string }) {
 
 /** Somente 300 resumos na tela. Ao avançar além disso abre um novo bloco. */
 function usePages<T extends { id: string }>(key: string, load: (cursor: Cursor) => Promise<Batch<T>>) {
-  const [items, setItems] = useState<T[]>([]);
-  const [next, setNext] = useState<Cursor | null>(0);
+  const saved = pageStates.get(key);
+  const [items, setItems] = useState<T[]>(() => (saved?.items as T[] | undefined) ?? []);
+  const [next, setNext] = useState<Cursor | null>(saved ? saved.next : 0);
+  const [loadedKey, setLoadedKey] = useState(key);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reset, setReset] = useState(0);
-  const [block, setBlock] = useState(0);
+  const [block, setBlock] = useState(saved?.block ?? 0);
   const generation = useRef(0);
   const running = useRef(false);
   const loader = useRef(load); loader.current = load;
@@ -94,11 +104,21 @@ function usePages<T extends { id: string }>(key: string, load: (cursor: Cursor) 
   useEffect(() => {
     generation.current++; running.current = false;
     const current = generation.current;
-    setItems([]); setNext(0); setError(null);
-    void request(0, true);
+    const cached = reset === 0 ? pageStates.get(key) : undefined;
+    setLoadedKey(key);
+    setItems((cached?.items as T[] | undefined) ?? []); setNext(cached ? cached.next : 0); setError(null); setBusy(false);
+    if (cached) setBlock(cached.block);
+    else void request(0, true);
     return () => { generation.current = current + 1; running.current = false; };
   }, [key, reset, request]);
-  return { items, next, busy, error, block,
+  const latest = useRef({ items, next, block }); latest.current = { items, next, block };
+  useEffect(() => () => {
+    if (latest.current.items.length) {
+      pageStates.delete(key); pageStates.set(key, latest.current);
+      while (pageStates.size > 2) pageStates.delete(pageStates.keys().next().value!);
+    }
+  }, [key]);
+  return { items: loadedKey === key ? items : [], next, busy: busy || loadedKey !== key, error, block,
     more: () => { if (next !== null) void request(next, items.length >= MAX_VISIBLE); },
     restart: () => setReset((n) => n + 1),
   };
@@ -136,14 +156,29 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
   const blocked = useStore(store, (s) => s.blockedCategories);
   const favorites = useStore(store, (s) => s.favorites);
   const positions = useStore(store, (s) => s.continueWatching);
-  const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const stateKey = `${session.playlist?.id}:${kind}:${category ?? ''}`;
+  const saved = browserStates.get(stateKey);
+  const [query, setQuery] = useState(saved?.query ?? '');
+  const [debounced, setDebounced] = useState(saved?.query.trim() ?? '');
+  const [order, setOrder] = useState<CatalogOrder>(saved?.order ?? 'recent');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchRef = useRef<TextInput>(null);
+  const offset = useRef(saved?.offset ?? 0);
+  const focusId = useRef(saved?.focused ?? null);
   const [pending, setPending] = useState<string | null>(null);
   const [focused, setFocused] = useState<CatalogItem | null>(null);
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
-  const [onlyFavorites, setOnlyFavorites] = useState(category === '__catalog_favorites__');
-  useEffect(() => setOnlyFavorites(category === '__catalog_favorites__'), [category, kind]);
+  const [onlyFavorites, setOnlyFavorites] = useState(saved?.favorites ?? category === '__catalog_favorites__');
+  useEffect(() => {
+    browserStates.set(stateKey, { query, order, favorites: onlyFavorites, offset: offset.current, focused: focusId.current });
+    while (browserStates.size > 8) browserStates.delete(browserStates.keys().next().value!);
+  }, [stateKey, query, order, onlyFavorites]);
+  const previousCategory = useRef(`${kind}:${category ?? ''}`);
+  useEffect(() => {
+    const current = `${kind}:${category ?? ''}`;
+    if (previousCategory.current !== current) { setOnlyFavorites(category === '__catalog_favorites__'); previousCategory.current = current; }
+  }, [category, kind]);
   const navigationGeneration = useRef(0);
   useEffect(() => () => { navigationGeneration.current++; }, []);
   useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 350); return () => clearTimeout(timer); }, [query]);
@@ -154,7 +189,7 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
   const searching = debounced.length > 0;
   const validSearch = catalogWords(debounced).some((w) => w.length >= 3);
   const gate = pending ?? (activeLocked ? chosen.name : null);
-  const key = JSON.stringify([snapshot?.manifest.version, kind, chosen?.id, debounced, excluded, onlyFavorites, onlyFavorites ? favorites : null]);
+  const key = JSON.stringify([snapshot?.baseUrl, snapshot?.manifest.version, kind, chosen?.id, debounced, excluded, onlyFavorites, onlyFavorites ? favorites : null, order]);
   const load = useCallback(async (cursor: Cursor): Promise<Batch<CatalogItem>> => {
     if (!snapshot || activeLocked) return { items: [], next: null };
     if (onlyFavorites) {
@@ -170,16 +205,17 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
     }
     if (searching) {
       if (!validSearch) return { items: [], next: null };
-      return catalogClient.search(snapshot, kind, debounced, typeof cursor === 'number' ? { page: 0, offset: 0 } : cursor, excluded);
+      return catalogClient.search(snapshot, kind, debounced, typeof cursor === 'number' ? { page: 0, offset: 0 } : cursor, excluded, order, chosen?.name);
     }
-    const result = await catalogClient.page(snapshot, kind, chosen?.id ?? 'all', typeof cursor === 'number' ? cursor : 0);
+    const result = await catalogClient.page(snapshot, kind, chosen?.id ?? 'all', typeof cursor === 'number' ? cursor : 0, order);
     return { ...result, items: result.items.filter((e) => !excluded.includes(e.group)) };
-  }, [snapshot, activeLocked, onlyFavorites, favorites, kind, excluded, searching, validSearch, debounced, chosen?.id]);
+  }, [snapshot, activeLocked, onlyFavorites, favorites, kind, excluded, searching, validSearch, debounced, chosen?.id, chosen?.name, order]);
   const pages = usePages(key, load);
   useEffect(() => { setFocused(null); setOpenError(null); }, [key]);
   const visible = pages.items.filter((e) => !excluded.includes(e.group));
   const open = async (entry: CatalogItem) => {
     if (!snapshot || opening || isGroupLocked(entry.group, store.getState().blockedCategories, session.unlockedCategories)) return;
+    browserStates.set(stateKey, { query, order, favorites: onlyFavorites, offset: offset.current, focused: entry.id });
     if (kind === 'series') { go({ name: 'seriesDetail', seriesId: entry.id }); return; }
     const current = navigationGeneration.current;
     setOpening(true); setOpenError(null);
@@ -192,7 +228,7 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
   };
   const choose = (name?: string) => {
     if (name && excluded.includes(name)) { setPending(name); return; }
-    setQuery(''); setDebounced(''); setOnlyFavorites(false);
+    offset.current = 0; focusId.current = null; setOnlyFavorites(false);
     replace({ name: kind, category: name });
   };
   if (!snapshot) return <CatalogHome />;
@@ -205,11 +241,17 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
       }} onCancel={() => { setPending(null); choose(); }} /> : <>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20, marginBottom: 12 }}>
           <View style={{ flex: 1 }}><Title>{focused?.name ?? (kind === 'movies' ? 'Filmes' : 'Séries')}</Title>
-            <Body muted>{focused && positions[focused.id] ? `Continuar de ${formatClock(positions[focused.id] ?? 0)}` : 'Busca por início de palavras · mínimo 3 letras'}</Body>
+            <Body muted>{focused && positions[focused.id] ? `Continuar de ${formatClock(positions[focused.id] ?? 0)}` : focused ? focused.addedAt ? `Incluído/observado em ${new Date(focused.addedAt).toLocaleDateString('pt-BR')}` : 'Data de inclusão desconhecida' : 'Busca por início de palavras · mínimo 3 letras'}</Body>
           </View>
-          <TextInput accessibilityLabel="Buscar no catálogo completo" value={query} onChangeText={(q) => { setOnlyFavorites(false); setQuery(q); }} placeholder="Buscar em todo o catálogo" placeholderTextColor={colors.textSecondary} style={fieldStyle} />
+          <FocusCard onPress={() => searchRef.current?.focus()}><Body>Buscar</Body></FocusCard>
+          <TextInput ref={searchRef} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)} accessibilityLabel="Buscar no catálogo completo" value={query} onChangeText={(q) => { offset.current = 0; focusId.current = null; setOnlyFavorites(false); setQuery(q); }} placeholder="Buscar no catálogo" placeholderTextColor={colors.textSecondary} style={[fieldStyle, { borderWidth: 3, borderColor: searchFocused ? colors.white : 'transparent' }]} />
           <FocusCard onPress={() => { setOnlyFavorites((v) => !v); setQuery(''); setDebounced(''); }}><Body>{onlyFavorites ? 'Todos' : 'Favoritos'}</Body></FocusCard>
           {focused && <FocusCard onPress={() => store.getState().toggleFavorite(focused.id)}><Body>{favorites.includes(focused.id) ? '★ Remover' : '☆ Favoritar'}</Body></FocusCard>}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center', marginBottom: 12 }}>
+          <FocusCard onPress={() => { offset.current = 0; setOrder((v) => v === 'recent' ? 'alphabetical' : 'recent'); }}><Body>{order === 'recent' ? 'Adicionados recentemente' : 'Ordem alfabética'}</Body></FocusCard>
+          <FocusCard onPress={() => { setQuery(''); setDebounced(''); setOrder('recent'); choose(); }}><Body>Limpar busca e filtros</Body></FocusCard>
+          <View style={{ flex: 1 }}><Body muted>{[chosen?.name ?? 'Todas as categorias', onlyFavorites ? 'Favoritos' : '', query ? `Busca: ${query}` : ''].filter(Boolean).join(' · ')}</Body></View>
         </View>
         <View style={{ height: 76 }}><ScrollView horizontal contentContainerStyle={{ gap: 12, padding: 6 }}>
           <FocusCard selected={!chosen} onPress={() => choose()}><Body>Todos</Body></FocusCard>
@@ -219,18 +261,21 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
         {opening && <Body>Abrindo título…</Body>}
         <View style={{ flex: 1 }}>
           <FlatList key={`${kind}-${pages.block}`} data={visible} numColumns={6} initialNumToRender={12} maxToRenderPerBatch={6} windowSize={3}
+            contentOffset={{ x: 0, y: offset.current }}
+            onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={100}
             keyExtractor={(e) => e.id} extraData={favorites}
-            renderItem={({ item, index }) => <FocusCard autoFocus={index === 0} style={{ width: 290, margin: 6, padding: 12 }}
-              onFocus={() => { setFocused(item); if (index >= visible.length - 6 && pages.items.length < MAX_VISIBLE && !pages.busy && !pages.error) pages.more(); }} onPress={() => void open(item)}>
+            renderItem={({ item, index }) => <FocusCard autoFocus={focusId.current ? item.id === focusId.current : index === 0} style={{ width: 290, margin: 6, padding: 12 }}
+              onFocus={() => { focusId.current = item.id; setFocused(item); if (index >= visible.length - 6 && pages.items.length < MAX_VISIBLE && !pages.busy && !pages.error) pages.more(); }} onPress={() => void open(item)}>
               <CatalogPoster src={item.poster} title={item.name} />
               <Text numberOfLines={1} style={foreground}>{favorites.includes(item.id) ? '★ ' : ''}{item.name}</Text>
             </FocusCard>}
-            ListEmptyComponent={<Body>{pages.busy ? 'Carregando…' : searching && !validSearch ? 'Digite pelo menos 3 letras.' : pages.next !== null ? 'Nenhum título neste lote. Use Carregar mais para continuar.' : 'Nenhum título encontrado.'}</Body>} />
+            ListEmptyComponent={pages.busy ? <Skeletons /> : <Body>{pages.error ? 'Falha de conexão. Tente novamente abaixo.' : searching && !validSearch ? 'Digite pelo menos 3 letras.' : pages.next !== null ? 'Nenhum título neste lote. Use Carregar mais para continuar.' : searching || chosen || onlyFavorites ? 'Nenhum resultado para a busca e os filtros ativos.' : 'Este catálogo está vazio.'}</Body>} />
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
           {pages.next !== null && <FocusCard onPress={pages.more}><Body>{pages.busy ? 'Carregando…' : pages.error ? 'Tentar novamente' : pages.items.length >= MAX_VISIBLE ? 'Continuar no próximo bloco' : 'Carregar mais'}</Body></FocusCard>}
           <FocusCard onPress={pages.restart}><Body>Voltar ao começo</Body></FocusCard>
           <Body muted>{visible.length} títulos nesta janela</Body>
+          {pages.busy && visible.length > 0 && <ActivityIndicator color={colors.accent} size="small" />}
         </View>
       </>}
     </View>

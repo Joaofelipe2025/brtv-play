@@ -2,7 +2,7 @@
   "expo": {
     "name": "BRTV PLAY",
     "slug": "brtv-play",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "landscape",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#06080B",
@@ -11,7 +11,7 @@
     ],
     "android": {
       "package": "app.brtvplay.player",
-      "versionCode": 1,
+      "versionCode": 2,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE"

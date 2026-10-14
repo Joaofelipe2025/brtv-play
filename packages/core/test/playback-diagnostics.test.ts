@@ -16,6 +16,8 @@ describe('diagnóstico de reprodução Android', () => {
   });
   it('distingue HTTP bloqueado pelo APK de bloqueio na fonte', () => {
     expect(describePlaybackFailure({ error: { errorCode: '22007' } })).toMatchObject({ code: 'HTTP BLOQUEADO', retryable: false });
+    expect(describePlaybackFailure({ error: { errorCode: 2007 } })).toMatchObject({ code: 'HTTP BLOQUEADO', retryable: false });
+    expect(describePlaybackFailure({ error: { errorException: 'Cleartext HTTP traffic not permitted' } })).toMatchObject({ code: 'HTTP BLOQUEADO', retryable: false });
   });
   it('identifica DNS, TLS e licença sem vazar a mensagem nativa', () => {
     for (const [native, code] of [['UnknownHostException', 'DNS'], ['SSLHandshakeException', 'TLS'], ['ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED', 'DRM']]) {

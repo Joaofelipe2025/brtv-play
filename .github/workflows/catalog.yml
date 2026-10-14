@@ -3,7 +3,7 @@ name: Publicar catálogo e atualização Android
 on:
   workflow_dispatch:
   push:
-    branches: [feat/paged-vod-catalog, fix/vod-playback-diagnostics, feat/saimo-vod]
+    branches: [feat/paged-vod-catalog, fix/vod-playback-diagnostics, feat/saimo-vod, fix/android-tv-experience]
 
 permissions:
   contents: write
@@ -28,7 +28,14 @@ jobs:
       - name: Verificar código e preparador
         run: pnpm check
       - name: Preparar catálogo
-        run: pnpm catalog:build
+        # O registro vive no servidor/CI; nunca é baixado pela TV.
+        # Restaura também versões imutáveis para clientes com manifest em cache.
+        shell: bash
+        run: |
+          mkdir -p catalog-output
+          git fetch origin catalog-data
+          git archive FETCH_HEAD | tar -x -C catalog-output
+          pnpm catalog:build
       - name: Preparar catálogo Saimo com fontes alternativas
         run: pnpm catalog:saimo
       - name: Publicar arquivos estáticos de forma atômica

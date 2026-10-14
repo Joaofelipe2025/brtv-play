@@ -47,3 +47,22 @@ test('página, busca, temporadas, IDs e versões conservam o conteúdo', async (
   await assert.rejects(buildCatalog(input, out));
   assert.equal(await readFile(join(out, 'manifest.json'), 'utf8'), pointer);
 }));
+
+test('primeira aparição é persistente, acervo inicial fica sem data e ordenação precede paginação', async () => fixture(async (dir) => {
+  const input = join(dir, 'list.m3u8'); const out = join(dir, 'output');
+  const old = Array.from({ length: 65 }, (_, i) => row(`Antigo ${i}`, 'Filmes', `old-${i}`)).join('');
+  await writeFile(input, '#EXTM3U\n' + old);
+  const initial = await buildCatalog(input, out);
+  const read = async (version, path) => JSON.parse(await readFile(join(out, version, path), 'utf8'));
+  assert.ok((await read(initial.version, 'movies/all/0.json')).items.every((e) => e.addedAt === undefined));
+  await writeFile(input, '#EXTM3U\n' + old + row('Z Novo', 'Filmes', 'new'));
+  const updated = await buildCatalog(input, out);
+  const first = (await read(updated.version, 'movies/all/0.json')).items[0];
+  assert.equal(first.name, 'Z Novo'); assert.ok(first.addedAt > 0);
+  const repeated = await buildCatalog(input, out);
+  assert.equal(repeated.version, updated.version);
+  assert.equal((await read(repeated.version, 'movies/all/0.json')).items[0].addedAt, first.addedAt);
+  assert.equal((await read(updated.version, 'alphabetical/movies/all/2.json')).items.at(-1).name, 'Z Novo');
+  const search = await read(updated.version, `search/movies/${searchBucket('novo')}/0.json`);
+  assert.equal(search.items[0].id, first.id);
+}));

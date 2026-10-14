@@ -28,7 +28,9 @@ function infoLine(line) {
   }
   if (split < 0) return null;
   const attrs = Object.fromEntries([...line.slice(0, split).matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
-  return { name: line.slice(split + 1).trim() || attrs['tvg-name'], group: attrs['group-title'] || 'Sem categoria', poster: httpUrl(attrs['tvg-logo']), tvgId: attrs['tvg-id'] || '' };
+  const rawAdded = attrs['added'] || attrs['date-added'];
+  const addedAt = rawAdded ? (/^\d+$/.test(rawAdded) ? Number(rawAdded) * 1000 : Date.parse(rawAdded)) : undefined;
+  return { name: line.slice(split + 1).trim() || attrs['tvg-name'], group: attrs['group-title'] || 'Sem categoria', poster: httpUrl(attrs['tvg-logo']), tvgId: attrs['tvg-id'] || '', ...(Number.isFinite(addedAt) && addedAt > 0 ? { addedAt } : {}) };
 }
 const chunks = (array, size) => Array.from({ length: Math.ceil(array.length / size) }, (_, i) => array.slice(i * size, (i + 1) * size));
 const compare = (a, b) => a.name.localeCompare(b.name, 'pt-BR') || a.id.localeCompare(b.id);
@@ -75,7 +77,7 @@ export async function buildCatalog(input, output) {
       const seriesId = 's-' + idOf(info.group, name.normalize('NFC').toLowerCase().replace(/\s+/g, ' '), artwork);
       let item = series.get(seriesId);
       if (!item) {
-        item = { id: seriesId, name, group: info.group, poster: info.poster, seasons: new Map() };
+        item = { id: seriesId, name, group: info.group, poster: info.poster, addedAt: info.addedAt, seasons: new Map() };
         series.set(seriesId, item);
       } else if (info.poster && item.poster && item.poster !== info.poster) report.ambiguousSeriesPosters++;
       const season = Number(episode[2]);
@@ -90,7 +92,7 @@ export async function buildCatalog(input, output) {
       // Query strings transitórias não mudam os IDs. Ano/qualidade no título e categoria são preservados.
       const id = 'm-' + idOf(info.group, words(info.name).join(' '), info.tvgId || new URL(url).pathname.split('/').pop());
       if (movies.has(id)) { report.duplicates++; continue; }
-      movies.set(id, { id, name: info.name, group: info.group, poster: info.poster, url });
+      movies.set(id, { id, name: info.name, group: info.group, poster: info.poster, addedAt: info.addedAt, url });
     }
   }
   if (pending) reject('Entrada sem URL');
@@ -102,6 +104,20 @@ export async function buildCatalog(input, output) {
 /** Emissor compartilhado; as listagens nunca carregam URLs de reprodução. */
 export async function writeCatalog({ movies, series, report, version }, output) {
   const root = resolve(output);
+  // O primeiro snapshot é uma linha de base sem datas inventadas para o acervo.
+  let registry = { schema: 1, seen: {} };
+  let baseline = true;
+  try {
+    registry = JSON.parse(await readFile(resolve(root, 'first-seen.json'), 'utf8'));
+    if (registry.schema !== 1 || !registry.seen || typeof registry.seen !== 'object') throw new Error('Registro de inclusão inválido');
+    baseline = false;
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const now = Date.now();
+  for (const entry of [...movies.values(), ...series.values()]) {
+    if (!Object.hasOwn(registry.seen, entry.id)) registry.seen[entry.id] = baseline ? null : now;
+    if (!entry.addedAt && registry.seen[entry.id] !== null) entry.addedAt = registry.seen[entry.id];
+  }
+  version = 'v4-' + createHash('sha256').update(version).update(JSON.stringify(registry)).digest('hex').slice(0, 16);
   const stage = resolve(root, '.stage-' + version);
   await rm(stage, { recursive: true, force: true });
   await mkdir(stage, { recursive: true });
@@ -138,7 +154,7 @@ export async function writeCatalog({ movies, series, report, version }, output) 
   const categories = { movies: [], series: [] };
   const totals = { movies: movies.size, series: series.size, episodes: episodeCount };
   for (const kind of ['movies', 'series']) {
-    summaries[kind].sort(compare);
+    summaries[kind].sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0) || compare(a, b));
     const groups = new Map([['all', summaries[kind]]]);
     for (const item of summaries[kind]) {
       const groupId = 'g-' + idOf(item.group);
@@ -149,6 +165,8 @@ export async function writeCatalog({ movies, series, report, version }, output) 
       const pages = chunks(items, PAGE_SIZE);
       if (groupId !== 'all') categories[kind].push({ id: groupId, name: items[0].group, count: items.length, pages: pages.length });
       for (let i = 0; i < pages.length; i++) await emit(`${kind}/${groupId}/${i}.json`, { items: pages[i], next: i + 1 < pages.length ? i + 1 : null });
+      const alphaPages = chunks([...items].sort(compare), PAGE_SIZE);
+      for (let i = 0; i < alphaPages.length; i++) await emit(`alphabetical/${kind}/${groupId}/${i}.json`, { items: alphaPages[i], next: i + 1 < alphaPages.length ? i + 1 : null });
     }
     const buckets = Array.from({ length: 256 }, () => []);
     for (const item of summaries[kind]) {
@@ -159,15 +177,18 @@ export async function writeCatalog({ movies, series, report, version }, output) 
       const pages = chunks(buckets[key], SEARCH_SIZE);
       await emit(`search/${kind}/${key}/index.json`, { pages: pages.length });
       for (let i = 0; i < pages.length; i++) await emit(`search/${kind}/${key}/${i}.json`, { items: pages[i], next: i + 1 < pages.length ? i + 1 : null });
+      const alphaPages = chunks([...buckets[key]].sort(compare), SEARCH_SIZE);
+      await emit(`alphabetical/search/${kind}/${key}/index.json`, { pages: alphaPages.length });
+      for (let i = 0; i < alphaPages.length; i++) await emit(`alphabetical/search/${kind}/${key}/${i}.json`, { items: alphaPages[i], next: i + 1 < alphaPages.length ? i + 1 : null });
     }
   }
-  const manifest = { schema: 1, version, pageSize: PAGE_SIZE, totals, categories };
+  const manifest = { schema: 1, version, pageSize: PAGE_SIZE, totals, categories, orders: ['recent', 'alphabetical'] };
   await emit('manifest.json', manifest);
   const finalDir = resolve(root, version);
   // Versões publicadas são imutáveis. Um rebuild do mesmo input reutiliza os mesmos arquivos.
   await mkdir(root, { recursive: true });
   try { await rename(stage, finalDir); } catch (error) {
-    if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error;
+    if (!['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(error.code)) throw error;
     const existing = JSON.parse(await readFile(resolve(finalDir, 'manifest.json'), 'utf8'));
     if (existing.version !== version) throw error;
     await rm(stage, { recursive: true, force: true });
@@ -175,6 +196,8 @@ export async function writeCatalog({ movies, series, report, version }, output) 
   // O ponteiro só muda depois de todos os arquivos da versão estarem prontos.
   await writeFile(resolve(root, 'manifest.next.json'), JSON.stringify(manifest));
   await rename(resolve(root, 'manifest.next.json'), resolve(root, 'manifest.json'));
+  await writeFile(resolve(root, 'first-seen.next.json'), JSON.stringify(registry));
+  await rename(resolve(root, 'first-seen.next.json'), resolve(root, 'first-seen.json'));
   const result = { ...report, ...totals, version, fileCount, totalBytes, maxPageBytes, firstPageBytes, manifestBytes: Buffer.byteLength(JSON.stringify(manifest)) };
   await writeFile(resolve(root, 'build-report.json'), JSON.stringify(result, null, 2));
   return result;
