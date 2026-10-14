@@ -7,10 +7,10 @@
   "movies": 27735,
   "series": 13830,
   "episodes": 444013,
-  "version": "v3-ff4c43c7ccc06588",
-  "fileCount": 75731,
-  "totalBytes": 220617758,
+  "version": "v4-9e62f097b19c14d2",
+  "fileCount": 80478,
+  "totalBytes": 254097028,
   "maxPageBytes": 37743,
   "firstPageBytes": 4969,
-  "manifestBytes": 499
+  "manifestBytes": 534
 }
