@@ -1,0 +1,33 @@
+{
+  "projectId": "cf820c71-a13b-4184-8a70-661eea62b83a",
+  "package": "app.brtvplay.player",
+  "channel": "preview",
+  "previous": {
+    "buildId": "0fcb9c17-1f87-4ce2-9053-852aec6ab541",
+    "version": "0.1.0",
+    "versionCode": 1,
+    "targetSdkVersion": 34,
+    "usesCleartextTraffic": null,
+    "networkSecurityConfig": null,
+    "sha256": "6480f9db4b55fadd3dfd89d1d676141d037c5966250347b0eed3a667b5f40fa5"
+  },
+  "test": {
+    "buildId": "14856dd5-532b-400c-a58f-e626a4fca3a4",
+    "status": "FINISHED",
+    "version": "0.1.1",
+    "versionCode": 2,
+    "targetSdkVersion": 34,
+    "usesCleartextTraffic": true,
+    "networkSecurityConfig": null,
+    "sha256": "bee659821b76a2e4cf7a463bd4741d35e35675027ade4164b1ed7c98cd027b2c"
+  },
+  "sharedSigningCertificateSha256": "64c5583f1732318c82f80f1070a45a54a67ef13611e0ced34b805c210288ff0a",
+  "update": {
+    "groupId": "105654aa-7925-4ab5-865e-80618ffe5111",
+    "androidId": "01a137c9-8493-70ca-837b-4f02c0c508ea",
+    "runtime": "0.1.1",
+    "workflow": 38489075260,
+    "workflowConclusion": "success",
+    "codeCommit": "5cbdcc7a67af037d7963415bbe00ec5509295c6b"
+  }
+}

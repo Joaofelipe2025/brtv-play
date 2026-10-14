@@ -11,7 +11,7 @@ O último build de teste anterior às mudanças, `0fcb9c17-1f87-4ce2-9053-852aec
 - `expo.modules.updates.ENABLED=true`, URL do projeto `cf820c71-a13b-4184-8a70-661eea62b83a`, canal `preview`.
 - Com targetSdk >= 28, a ausência de permissão explícita resulta em HTTP bloqueado pelo Android. O build anterior efetivamente não permite HTTP no release.
 
-A configuração atual em `apps/android/app.json` usa `expo-build-properties` com `android.usesCleartextTraffic=true`. `expo config --type introspect` confirmou esse atributo no manifest resultante e ausência de Network Security Config. O plugin Leanback não sobrescreve a política. O manifest dentro do APK novo ainda precisa ser conferido antes de confirmar a correção no artefato.
+A configuração atual em `apps/android/app.json` usa `expo-build-properties` com `android.usesCleartextTraffic=true`. `expo config --type introspect` confirmou esse atributo no manifest resultante e ausência de Network Security Config. O plugin Leanback não sobrescreve a política. A inspeção do APK novo de release confirmou `usesCleartextTraffic=true`, ausência de `networkSecurityConfig`, targetSdk 34 e pacote `app.brtvplay.player`: o artefato permite HTTP, sem configuração sobrescrevendo essa permissão.
 
 Referências: [política de rede Android](https://developer.android.com/privacy-and-security/security-config), [atributo application](https://developer.android.com/guide/topics/manifest/application-element), [EAS Update](https://docs.expo.dev/eas-update/introduction/).
 
@@ -45,7 +45,7 @@ O preparador ordena todo o catálogo antes de criar páginas de 30 itens, págin
 
 ## Validação e limites
 
-Lint, typecheck de core/webOS/Android, 215 testes do core, três testes do preparador e build webOS passaram. Os testes de catálogo verificam a inclusão de um título novo além da primeira página original, a ordenação antes da paginação, o registro sem datas para o acervo antigo, persistência e ordenação alfabética. Testes de diagnóstico cobrem 401/403, cleartext, TLS e proteção de dados.
+Lint, typecheck de core/webOS/Android, 216 testes do core, três testes do preparador e build webOS passaram, também no CI. Os testes de catálogo verificam a inclusão de um título novo além da primeira página original, a ordenação antes da paginação, o registro sem datas para o acervo antigo, persistência, ordenação alfabética e filtros na busca global. Testes de diagnóstico cobrem 401/403, cleartext, TLS e proteção de dados.
 
 Não houve execução em TV física/emulador nesta máquina. Confirmar D-pad, teclado, pausa/buffering reais, avanço/retomada entre fontes equivalentes e legibilidade no aparelho continua sendo validação manual. Não houve teste de acesso a cada fonte comercial. Trocar fontes com edições/durações diferentes pode exigir ajustar a posição. Favoritos pessoais mantêm sua paginação por IDs, sem promessa de ordenação global por inclusão; listas próprias M3U/Xtream continuam no fluxo legado já existente, enquanto as melhorias de ordenação/paginação global são para os catálogos estáticos integrados. Não se alterou o backend, ativação, EPG, áudio, legendas ou PIN.
 
@@ -55,4 +55,10 @@ Instalar o APK novo de preview usando o mesmo pacote e a mesma assinatura preser
 
 ## Publicação
 
-Build de teste solicitado: [14856dd5-532b-400c-a58f-e626a4fca3a4](https://expo.dev/accounts/brtv-play/projects/brtv-play/builds/14856dd5-532b-400c-a58f-e626a4fca3a4). Estado e inspeção final serão registrados após confirmação do EAS. Publicação de catálogo e EAS Update também exige confirmação do workflow/serviço; uma solicitação não significa publicação concluída.
+Build de teste [14856dd5-532b-400c-a58f-e626a4fca3a4](https://expo.dev/accounts/brtv-play/projects/brtv-play/builds/14856dd5-532b-400c-a58f-e626a4fca3a4): **FINISHED**, 0.1.1/versionCode 2, preview. [Baixar APK](https://expo.dev/artifacts/eas/y7jtgaf_ai5m5SbjmJrEpHZpjuPzi1VCNvF-W3NAs_c.apk). Cópia local: `dist-apk/brtv-play-0.1.1-preview.apk`.
+
+SHA-256 do APK novo: `bee659821b76a2e4cf7a463bd4741d35e35675027ade4164b1ed7c98cd027b2c`. Certificado SHA-256 de ambos os APKs: `64c5583f1732318c82f80f1070a45a54a67ef13611e0ced34b805c210288ff0a`. Comparação feita com os certificados do bloco APK Signature Scheme v2. Mesmo pacote, certificado e versionCode maior permitem atualizar por cima do APK anterior inspecionado; a instalação no aparelho não foi executada.
+
+Os últimos ajustes JavaScript, posteriores ao snapshot enviado ao build, foram publicados pela atualização [105654aa-7925-4ab5-865e-80618ffe5111](https://expo.dev/accounts/brtv-play/projects/brtv-play/updates/105654aa-7925-4ab5-865e-80618ffe5111), Android update `01a137c9-8493-70ca-837b-4f02c0c508ea`, runtime 0.1.1, branch/canal preview. Confirmação no EAS (`update:list`) e no [workflow concluído com sucesso](https://github.com/Joaofelipe2025/brtv-play/actions/runs/38489075260), commit de código `5cbdcc7a6`. Abrir o APK novo com internet aplica essa atualização pelo fluxo já existente.
+
+O workflow também confirmou a publicação dos arquivos estáticos. Verificação HTTP dos dois manifests e primeira página: ambos oferecem `recent` e `alphabetical`, têm 30 resumos por primeira página e não incluem URLs de reprodução nas listagens. Catálogo geral: 30.203 filmes, 8.444 séries; Saimo: 27.735 filmes, 13.830 séries. As primeiras páginas do snapshot inicial não têm datas de inclusão atribuídas. A ordem por datas será efetiva para novos IDs observados ou metadados explícitos nas próximas atualizações; o acervo inicial desconhecido permanece com desempate alfabético.
