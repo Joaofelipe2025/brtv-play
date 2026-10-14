@@ -8,6 +8,22 @@ let end = apk.length - 22;
 while (end >= Math.max(0, apk.length - 65557) && apk.readUInt32LE(end) !== 0x06054b50) end--;
 if (end < 0) throw new Error('ZIP inválido');
 let pos = apk.readUInt32LE(end + 16);
+const central = pos;
+const signingCertificates = [];
+if (apk.toString('ascii', central - 16, central) === 'APK Sig Block 42') {
+  const blockStart = central - Number(apk.readBigUInt64LE(central - 24)) - 8;
+  for (let at = blockStart + 8; at < central - 24;) {
+    const size = Number(apk.readBigUInt64LE(at)), identifier = apk.readUInt32LE(at + 8);
+    if (identifier === 0x7109871a) {
+      const data = apk.subarray(at + 12, at + 8 + size);
+      const field = (buffer, offset = 0) => buffer.subarray(offset + 4, offset + 4 + buffer.readUInt32LE(offset));
+      const signers = field(data), signer = field(signers), signed = field(signer);
+      const certs = field(signed, 4 + signed.readUInt32LE(0));
+      signingCertificates.push(createHash('sha256').update(field(certs)).digest('hex'));
+    }
+    at += 8 + size;
+  }
+}
 const entries = new Map();
 for (let i = 0; i < apk.readUInt16LE(end + 10); i++) {
   const method = apk.readUInt16LE(pos + 10), size = apk.readUInt32LE(pos + 20);
@@ -49,5 +65,5 @@ function xml(buffer) {
 }
 const manifest = xml(entries.get('AndroidManifest.xml')());
 const selected = manifest.filter((e) => ['manifest', 'uses-sdk', 'application'].includes(e.name) || e.name === 'meta-data' && /expo.modules.updates/.test(e.attrs.name));
-console.log(JSON.stringify({ sha256: createHash('sha256').update(apk).digest('hex'), manifest: selected,
+console.log(JSON.stringify({ sha256: createHash('sha256').update(apk).digest('hex'), signingCertificates, manifest: selected,
   networkConfigs: [...entries.keys()].filter((name) => /res\/xml\/.*network.*\.xml/.test(name)).map((name) => ({ name, elements: xml(entries.get(name)()) })) }, null, 2));

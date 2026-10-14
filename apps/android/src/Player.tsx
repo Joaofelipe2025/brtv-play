@@ -54,6 +54,7 @@ export interface PlayerProps {
   onTestPlayback?(): void;
   epgTitle?: string;
   handoff?: { position: number; paused: boolean };
+  sourceSwitch?: boolean;
 }
 
 type Status = 'loading' | 'playing' | 'reconnecting' | 'error';
@@ -98,6 +99,7 @@ export function Player(props: PlayerProps) {
   };
   return <PlaybackEngine {...props}
     handoff={handoff.current}
+    sourceSwitch={current.index > 0}
     key={`${props.id ?? props.url}-${current.generation}`}
     url={current.source.url}
     sourceLabel={`Fonte ${current.index + 1} de ${round.sources.length} · ${current.source.label}`}
@@ -122,6 +124,7 @@ function PlaybackEngine({
   onNextSource,
   onRestartSources,
   handoff,
+  sourceSwitch,
 }: PlayerProps) {
   const videoRef = useRef<VideoRef>(null);
   const multipleSources = onNextSource !== undefined;
@@ -564,7 +567,7 @@ function PlaybackEngine({
         >
           {sourceLabel && <Body>{sourceLabel}</Body>}
           <ActivityIndicator size="large" color={colors.accent} />
-          <Body>{status === 'loading' ? (sourceLabel && handoff ? 'Trocando fonte · Conectando…' : 'Conectando…') : buffering && status === 'playing' ? 'Carregando vídeo…' : 'Reconectando…'}</Body>
+          <Body>{status === 'loading' ? (sourceSwitch ? 'Trocando fonte · Conectando…' : 'Conectando…') : buffering && status === 'playing' ? 'Carregando vídeo…' : 'Reconectando…'}</Body>
           {status === 'reconnecting' && (
             <Body>
               Reconectando, tentativa {Math.max(1, retryNo)} de {maxAttempts}

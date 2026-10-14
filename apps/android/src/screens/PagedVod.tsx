@@ -17,6 +17,7 @@ type Cursor = number | CatalogSearchCursor;
 interface Batch<T> { items: T[]; next: Cursor | null }
 const EMPTY_ITEMS: never[] = [];
 const MAX_VISIBLE = 300;
+const GRID_ROW_HEIGHT = 476;
 const foreground = { color: colors.textPrimary, fontSize: 25 };
 const fieldStyle = { color: colors.textPrimary, fontSize: 26, backgroundColor: colors.surface, borderRadius: 12, padding: 14, width: 370 };
 // Estado de navegação limitado: não é um cache do catálogo inteiro.
@@ -261,10 +262,12 @@ export function CatalogBrowser({ kind, category }: { kind: CatalogKind; category
         {opening && <Body>Abrindo título…</Body>}
         <View style={{ flex: 1 }}>
           <FlatList key={`${kind}-${pages.block}`} data={visible} numColumns={6} initialNumToRender={12} maxToRenderPerBatch={6} windowSize={3}
+            getItemLayout={(_data, index) => ({ length: GRID_ROW_HEIGHT, offset: index * GRID_ROW_HEIGHT, index })}
+            initialScrollIndex={visible.length ? Math.min(Math.floor(offset.current / GRID_ROW_HEIGHT), Math.ceil(visible.length / 6) - 1) : undefined}
             contentOffset={{ x: 0, y: offset.current }}
             onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={100}
             keyExtractor={(e) => e.id} extraData={favorites}
-            renderItem={({ item, index }) => <FocusCard autoFocus={focusId.current ? item.id === focusId.current : index === 0} style={{ width: 290, margin: 6, padding: 12 }}
+            renderItem={({ item, index }) => <FocusCard autoFocus={focusId.current ? item.id === focusId.current : index === 0} style={{ width: 290, height: 464, margin: 6, padding: 12 }}
               onFocus={() => { focusId.current = item.id; setFocused(item); if (index >= visible.length - 6 && pages.items.length < MAX_VISIBLE && !pages.busy && !pages.error) pages.more(); }} onPress={() => void open(item)}>
               <CatalogPoster src={item.poster} title={item.name} />
               <Text numberOfLines={1} style={foreground}>{favorites.includes(item.id) ? '★ ' : ''}{item.name}</Text>

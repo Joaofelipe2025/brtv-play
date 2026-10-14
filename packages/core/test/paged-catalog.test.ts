@@ -10,6 +10,16 @@ const response = (value: unknown, ok = true) => ({ ok, headers: { get: () => nul
 afterEach(() => vi.useRealTimers());
 
 describe('catálogo estático paginado', () => {
+  it('seleciona páginas e índice alfabéticos sem ordenar somente a janela local e aplica categoria na busca', async () => {
+    const fetcher = vi.fn(async (url: string) => response(url.endsWith('/manifest.json') ? { ...manifest, orders: ['recent', 'alphabetical'] } : url.endsWith('/index.json') ? { pages: 1 } : { items: [a, b], next: null }));
+    const client = new PagedCatalogClient(new MemoryAdapter(), fetcher);
+    const snapshot = await client.open(base);
+    await client.page(snapshot, 'movies', 'all', 0, 'alphabetical');
+    expect(fetcher.mock.calls[1]?.[0]).toContain('/alphabetical/movies/all/0.json');
+    const result = await client.search(snapshot, 'movies', 'casa', undefined, [], 'alphabetical', 'Drama');
+    expect(result.items).toEqual([a]);
+    expect(fetcher.mock.calls[2]?.[0]).toContain('/alphabetical/search/');
+  });
   it('preserva alternativas válidas e rejeita fontes malformadas', async () => {
     for (const sources of [undefined, [{ url: 'https://example.org/alt.mp4', label: 'Dublado' }]]) {
       const data = { ...a, url: 'https://example.org/movie.mp4', sources };
